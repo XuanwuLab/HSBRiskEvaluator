@@ -1,0 +1,28 @@
+[project]
+name = "hsbriskevaluator"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "atumli", email = "atumli@tencent.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "copydetect>=0.5.0",
+    "dateutils>=0.6.12",
+    "langchain>=0.3.26",
+    "langchain-community>=0.3.26",
+    "langchain-openai>=0.3.25",
+    "openai>=1.90.0",
+    "pygithub>=2.6.1",
+    "pygments>=2.19.2",
+    "python-dotenv>=1.1.1",
+    "requests>=2.32.4",
+]
+
+[project.scripts]
+hsbriskevaluator = "hsbriskevaluator:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
