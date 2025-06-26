@@ -210,3 +210,289 @@ class GitHubCrawler(GitHubAPIBase):
             f"Search completed: {len(results)} repositories found for query '{query}'."
         )
         return results
+
+    async def get_contributors(self, repo_name: str, limit: int = 100) -> List[Dict]:
+        """Get repository contributors with detailed user information"""
+        repo_name = self.strip_repo_name(repo_name)
+        contributors = []
+        page = 1
+
+        while len(contributors) < limit:
+            url = self._build_url(
+                f"/repos/{repo_name}/contributors?per_page={self.PER_PAGE}&page={page}"
+            )
+            
+            try:
+                data = await self._request("GET", url)
+                if not data:
+                    break
+                
+                # Get detailed user info for each contributor
+                for contributor in data:
+                    if len(contributors) >= limit:
+                        break
+                    
+                    user_detail = await self.get_user(contributor["login"])
+                    contributors.append({
+                        "username": contributor["login"],
+                        "name": user_detail.get("name", ""),
+                        "email": user_detail.get("email", ""),
+                        "contributions": contributor.get("contributions", 0)
+                    })
+                
+                if len(data) < self.PER_PAGE:
+                    break
+                page += 1
+                
+            except RateLimitExceeded:
+                logger.warning("Rate limit hit during contributors fetch. Handling...")
+                await self._handle_rate_limit()
+            except ClientError as e:
+                logger.error(f"Error fetching contributors: {e}")
+                break
+
+        logger.info(f"Retrieved {len(contributors)} contributors for {repo_name}")
+        return contributors
+
+    async def get_user(self, username: str) -> Dict:
+        """Get detailed user information"""
+        url = self._build_url(f"/users/{username}")
+        try:
+            return await self._request("GET", url)
+        except ClientError:
+            logger.warning(f"Could not fetch user details for {username}")
+            return {"login": username, "name": "", "email": ""}
+
+    async def get_issues(self, repo_name: str, state: str = "all", limit: int = 100) -> List[Dict]:
+        """Get repository issues with comments"""
+        repo_name = self.strip_repo_name(repo_name)
+        issues = []
+        page = 1
+
+        while len(issues) < limit:
+            url = self._build_url(
+                f"/repos/{repo_name}/issues?state={state}&per_page={self.PER_PAGE}&page={page}"
+            )
+            
+            try:
+                data = await self._request("GET", url)
+                if not data:
+                    break
+                
+                for issue in data:
+                    if len(issues) >= limit:
+                        break
+                    
+                    # Skip pull requests (they appear in issues endpoint)
+                    if "pull_request" in issue:
+                        continue
+                    
+                    # Get comments for this issue
+                    comments = await self.get_issue_comments(repo_name, issue["number"])
+                    
+                    issue_data = {
+                        "number": issue["number"],
+                        "author": issue["user"]["login"],
+                        "title": issue["title"],
+                        "body": issue.get("body", ""),
+                        "comments": comments,
+                        "status": issue["state"],
+                        "url": issue["html_url"],
+                        "created_at": issue["created_at"],
+                        "updated_at": issue["updated_at"]
+                    }
+                    issues.append(issue_data)
+                
+                if len(data) < self.PER_PAGE:
+                    break
+                page += 1
+                
+            except RateLimitExceeded:
+                logger.warning("Rate limit hit during issues fetch. Handling...")
+                await self._handle_rate_limit()
+            except ClientError as e:
+                logger.error(f"Error fetching issues: {e}")
+                break
+
+        logger.info(f"Retrieved {len(issues)} issues for {repo_name}")
+        return issues
+
+    async def get_issue_comments(self, repo_name: str, issue_number: int) -> List[Dict]:
+        """Get comments for a specific issue"""
+        repo_name = self.strip_repo_name(repo_name)
+        url = self._build_url(f"/repos/{repo_name}/issues/{issue_number}/comments")
+        
+        try:
+            data = await self._request("GET", url)
+            comments = []
+            for comment in data:
+                comments.append({
+                    "username": comment["user"]["login"],
+                    "content": comment["body"],
+                    "created_at": comment["created_at"]
+                })
+            return comments
+        except ClientError:
+            logger.warning(f"Could not fetch comments for issue #{issue_number}")
+            return []
+
+    async def get_pull_requests(self, repo_name: str, state: str = "all", limit: int = 100) -> List[Dict]:
+        """Get repository pull requests with review information"""
+        repo_name = self.strip_repo_name(repo_name)
+        pull_requests = []
+        page = 1
+
+        while len(pull_requests) < limit:
+            url = self._build_url(
+                f"/repos/{repo_name}/pulls?state={state}&per_page={self.PER_PAGE}&page={page}"
+            )
+            
+            try:
+                data = await self._request("GET", url)
+                if not data:
+                    break
+                
+                for pr in data:
+                    if len(pull_requests) >= limit:
+                        break
+                    
+                    # Get reviews for this PR
+                    reviews = await self.get_pr_reviews(repo_name, pr["number"])
+                    
+                    # Find approver and merger
+                    approver = ""
+                    merger = pr.get("merged_by", {}).get("login", "") if pr.get("merged_by") else ""
+                    
+                    # Find the last approving review
+                    for review in reversed(reviews):
+                        if review.get("state") == "APPROVED":
+                            approver = review.get("user", {}).get("login", "")
+                            break
+                    
+                    pr_data = {
+                        "number": pr["number"],
+                        "title": pr["title"],
+                        "author": pr["user"]["login"],
+                        "approver": approver,
+                        "merger": merger,
+                        "status": "merged" if pr["merged_at"] else pr["state"],
+                        "url": pr["html_url"],
+                        "created_at": pr["created_at"],
+                        "updated_at": pr["updated_at"],
+                        "merged_at": pr.get("merged_at")
+                    }
+                    pull_requests.append(pr_data)
+                
+                if len(data) < self.PER_PAGE:
+                    break
+                page += 1
+                
+            except RateLimitExceeded:
+                logger.warning("Rate limit hit during pull requests fetch. Handling...")
+                await self._handle_rate_limit()
+            except ClientError as e:
+                logger.error(f"Error fetching pull requests: {e}")
+                break
+
+        logger.info(f"Retrieved {len(pull_requests)} pull requests for {repo_name}")
+        return pull_requests
+
+    async def get_pr_reviews(self, repo_name: str, pr_number: int) -> List[Dict]:
+        """Get reviews for a specific pull request"""
+        repo_name = self.strip_repo_name(repo_name)
+        url = self._build_url(f"/repos/{repo_name}/pulls/{pr_number}/reviews")
+        
+        try:
+            return await self._request("GET", url)
+        except ClientError:
+            logger.warning(f"Could not fetch reviews for PR #{pr_number}")
+            return []
+
+    async def get_repository_contents(self, repo_name: str, path: str = "", ref: str = "main") -> List[Dict]:
+        """Get repository contents at a specific path"""
+        repo_name = self.strip_repo_name(repo_name)
+        url = self._build_url(f"/repos/{repo_name}/contents/{path}")
+        if ref:
+            url += f"?ref={ref}"
+        
+        try:
+            return await self._request("GET", url)
+        except ClientError:
+            logger.warning(f"Could not fetch contents for path: {path}")
+            return []
+
+    async def find_binary_files(self, repo_name: str, max_depth: int = 3) -> List[str]:
+        """Find binary files in the repository by traversing the file tree"""
+        binary_extensions = {
+            '.exe', '.dll', '.so', '.dylib', '.a', '.lib', '.bin', '.dat',
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico', '.svg',
+            '.mp3', '.mp4', '.avi', '.mov', '.wav', '.flac',
+            '.zip', '.tar', '.gz', '.bz2', '.xz', '.7z', '.rar',
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            '.jar', '.war', '.ear', '.class', '.pyc', '.pyo',
+            '.o', '.obj', '.deb', '.rpm', '.dmg', '.pkg', '.msi'
+        }
+        
+        binary_files = []
+        
+        async def traverse_directory(path: str = "", current_depth: int = 0):
+            if current_depth > max_depth:
+                return
+            
+            contents = await self.get_repository_contents(repo_name, path)
+            
+            for item in contents:
+                if item["type"] == "file":
+                    file_path = item["path"]
+                    file_ext = os.path.splitext(file_path)[1].lower()
+                    
+                    if file_ext in binary_extensions:
+                        binary_files.append(file_path)
+                elif item["type"] == "dir" and current_depth < max_depth:
+                    await traverse_directory(item["path"], current_depth + 1)
+        
+        try:
+            await traverse_directory()
+            logger.info(f"Found {len(binary_files)} binary files in {repo_name}")
+        except Exception as e:
+            logger.error(f"Error finding binary files: {e}")
+        
+        return binary_files
+
+    async def get_repo_info_complete(self, repo_name: str, pkt_name: str = "") -> Dict:
+        """Get complete repository information for RepoInfo model"""
+        repo_name = self.strip_repo_name(repo_name)
+        
+        try:
+            # Get basic repo info
+            repo_data = await self.get_repo(repo_name)
+            
+            # Gather all required information concurrently
+            contributors_task = asyncio.create_task(self.get_contributors(repo_name))
+            issues_task = asyncio.create_task(self.get_issues(repo_name))
+            prs_task = asyncio.create_task(self.get_pull_requests(repo_name))
+            binary_files_task = asyncio.create_task(self.find_binary_files(repo_name))
+            
+            # Wait for all tasks to complete
+            contributors = await contributors_task
+            issues = await issues_task
+            pull_requests = await prs_task
+            binary_files = await binary_files_task
+            
+            repo_info = {
+                "pkt_type": "debian",
+                "pkt_name": pkt_name or repo_name.split("/")[-1],
+                "repo_id": repo_name.replace("/", "-"),
+                "url": repo_data["html_url"],
+                "contributor_list": contributors,
+                "pr_list": pull_requests,
+                "issue_list": issues,
+                "binary_file_list": binary_files
+            }
+            
+            logger.info(f"Successfully collected complete repo info for {repo_name}")
+            return repo_info
+            
+        except Exception as e:
+            logger.error(f"Error collecting complete repo info: {e}")
+            raise
