@@ -20,16 +20,11 @@ class Issue(BaseModel):
     created_at: str = Field(description="creation timestamp")
     updated_at: str = Field(description="last update timestamp")
 
-class PullRequest(BaseModel):
-    number: int = Field(description="pull request number")
-    title: str = Field(description="title of the pull request")
-    author: str = Field(description="author of the pull request")
-    approver: str = Field(description="approver of the pull request")
+class PullRequest(Issue):
+    approvers: list[str] = Field(description="approver of the pull request")
+    reviewers: list[str] = Field(description="list of reviewers for the pull request")
     merger: str = Field(description="merger of the pull request")
     status: Literal['open', 'closed', 'merged'] = Field(description="status of the pull request")
-    url: str = Field(description="URL of the pull request")
-    created_at: str = Field(description="creation timestamp")
-    updated_at: str = Field(description="last update timestamp")
     merged_at: str | None = Field(description="merge timestamp if merged", default=None)
 
 class RepoInfo(BaseModel):
@@ -41,3 +36,4 @@ class RepoInfo(BaseModel):
     pr_list: list[PullRequest] = Field(description="List of pull requests in the repository")
     issue_list: list[Issue] = Field(description="List of issues in the repository")
     binary_file_list: list[str] = Field(description="List of binary files in the repository")
+    local_repo_dir: str | None = Field(description="Local repository directory path relative to data_dir", default=None)

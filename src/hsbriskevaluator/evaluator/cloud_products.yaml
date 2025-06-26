@@ -1,0 +1,77 @@
+# Cloud product packages that are dependencies of mainstream cloud products
+cloud_products:
+  # AWS CLI and tools
+  - aws-cli
+  - awscli
+  - python3-awscli
+  - aws-shell
+  
+  # Azure CLI and tools
+  - azure-cli
+  - azure-functions-core-tools
+  
+  # Google Cloud SDK
+  - google-cloud-sdk
+  - google-cloud-cli
+  - gcloud
+  
+  # Kubernetes and container orchestration
+  - kubectl
+  - kubernetes-client
+  - kubernetes-node
+  - kubernetes-master
+  - kubeadm
+  - kubelet
+  
+  # Container tools
+  - docker
+  - docker.io
+  - docker-ce
+  - docker-compose
+  - containerd
+  - runc
+  
+  # Infrastructure as Code
+  - terraform
+  - packer
+  - vagrant
+  
+  # Configuration management
+  - ansible
+  - ansible-core
+  - puppet
+  - chef
+  - saltstack
+  
+  # Service mesh and networking
+  - istio
+  - envoy
+  - consul
+  - vault
+  - nomad
+  
+  # Monitoring and observability
+  - prometheus
+  - grafana
+  - elasticsearch
+  - logstash
+  - kibana
+  - fluentd
+  - jaeger
+  
+  # Container orchestration tools
+  - helm
+  - kustomize
+  - skaffold
+  
+  # CI/CD tools
+  - jenkins
+  - gitlab-runner
+  - github-runner
+  
+  # Database tools for cloud
+  - redis-server
+  - redis-tools
+  - mongodb
+  - postgresql-client
+  - mysql-client

@@ -1,4 +1,6 @@
 # Python-generated files
+data
+cache
 __pycache__/
 *.py[oc]
 build/
