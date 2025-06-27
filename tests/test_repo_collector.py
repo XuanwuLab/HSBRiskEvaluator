@@ -5,6 +5,7 @@ Test script for the GitHub Collector
 
 import asyncio
 import sys
+import logging
 import os
 
 from hsbriskevaluator.utils.file import get_data_dir

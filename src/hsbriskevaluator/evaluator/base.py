@@ -34,6 +34,12 @@ class CommunityEvalResult(BaseModel):
     )
 
 
+class PayloadHiddenDetail(BaseModel):
+    reason: str
+    file_type: str
+    is_test_file: bool
+    is_documentation: bool
+
 class PayloadHiddenEvalResult(BaseModel):
     """Difficulty of Hiding Malicious Code evaluation results"""
 
@@ -43,13 +49,13 @@ class PayloadHiddenEvalResult(BaseModel):
     allows_binary_document_files: bool = Field(
         description="Whether repository allows submitting binary files as documents"
     )
-    has_payload_trigger_features: bool = Field(
-        description="Whether repository enables features that could trigger malicious payloads"
-    )
     binary_files_count: int = Field(
         description="Total number of binary files in repository"
     )
-    risk_score: float = Field(description="Overall risk score for payload hiding (0-1)")
+    details: list[PayloadHiddenDetail] = Field(
+        default_factory=list,
+        description="Detailed analysis of binary files and their classification"
+    )
 
 
 class DependencyDetail(BaseModel):
@@ -83,9 +89,6 @@ class EvalResult(BaseModel):
     community_quality: CommunityEvalResult
     payload_hidden_difficulty: PayloadHiddenEvalResult
     dependency: DependencyEvalResult
-    overall_risk_score: float = Field(
-        description="Overall risk score combining all categories (0-1)"
-    )
 
 
 class BaseEvaluator(ABC):
