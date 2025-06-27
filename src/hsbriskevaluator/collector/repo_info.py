@@ -85,7 +85,7 @@ class PullRequest(Issue):
 
 
 class RepoInfo(BaseModel):
-    pkt_type: Literal["debian"] = "debian"  # only support debian
+    pkt_type: Literal["debian","others"] = "debian"  # only support debian
     pkt_name: str = Field(
         description="package name in package management system such as apt."
     )

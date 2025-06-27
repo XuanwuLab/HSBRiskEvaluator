@@ -6,6 +6,7 @@ from various sources, particularly GitHub repositories, and package
 dependency information from APT.
 """
 
+from typing import Optional
 from .repo_info import GithubUser, Comment, Issue, PullRequest, RepoInfo, Dependent
 
 from .github_collector import (
@@ -41,14 +42,24 @@ __all__ = [
 ]
 
 
-async def collect_all(pkt_type: str, pkt_name: str, repo_name: str):
+async def collect_all(
+    pkt_type: str,
+    pkt_name: str,
+    repo_name: str,
+    max_contributors: Optional[int] = None,
+    max_issues: Optional[int] = None,
+    max_prs: Optional[int] = None,
+    max_events: Optional[int] = None,
+):
     """Collect all information about a repository"""
     repo_info = await collect_github_repo_info(
         repo_name=repo_name,
-        max_contributors=10000,
-        max_issues=10000,
-        max_prs=10000,
-        max_events=100000,
+        pkt_type=pkt_type,
+        pkt_name=pkt_name,
+        max_contributors=max_contributors,
+        max_issues=max_issues,
+        max_prs=max_prs,
+        max_events=max_events,
     )
     if pkt_type == "debian":
         repo_info = await enrich_repo_with_dependencies(repo_info)

@@ -22,6 +22,9 @@ async def test_collector():
             pkt_type='debian',
             pkt_name='xz-utils',
             repo_name='tukaani-project/xz', 
+            max_issues=3,
+            max_prs=3,
+            max_contributors=3,
         )
         
         print(f"✅ Successfully collected info for {repo_info.repo_id}")

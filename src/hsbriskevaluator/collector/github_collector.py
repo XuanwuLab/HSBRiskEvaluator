@@ -395,6 +395,7 @@ class GitHubRepoCollector:
             List[GithubEvent]: List of repository events (excluding WatchEvent, ForkEvent, SponsorshipEvent)
         """
 
+        #todo: use google big query to query all the events for the repository, see https://www.gharchive.org/
         def _fetch_events():
             events = []
             try:
@@ -426,6 +427,7 @@ class GitHubRepoCollector:
     async def collect_repo_info(
         self,
         repo_name: str,
+        pkt_type: str = "debian",
         pkt_name: str = "",
         max_contributors: Optional[int] = None,
         max_issues: Optional[int] = None,
@@ -483,7 +485,7 @@ class GitHubRepoCollector:
 
             # Create RepoInfo model
             repo_info = RepoInfo(
-                pkt_type="debian",
+                pkt_type=pkt_type,  # type: ignore
                 pkt_name=pkt_name or repo_name.split("/")[-1],
                 repo_id=repo_name.replace("/", "-"),
                 url=repo.html_url,
@@ -553,7 +555,11 @@ class GitHubRepoCollector:
 
 # Convenience function for single repository collection
 async def collect_github_repo_info(
-    repo_name: str, pkt_name: str = "", github_token: Optional[str] = None, **kwargs
+    repo_name: str,
+    pkt_type: str = "debian",
+    pkt_name: str = "",
+    github_token: Optional[str] = None,
+    **kwargs,
 ) -> RepoInfo:
     """
     Convenience function to collect information for a single repository
@@ -568,7 +574,9 @@ async def collect_github_repo_info(
         RepoInfo: Repository information
     """
     async with GitHubRepoCollector(github_token) as collector:
-        return await collector.collect_repo_info(repo_name, pkt_name, **kwargs)
+        return await collector.collect_repo_info(
+            repo_name, pkt_type, pkt_name, **kwargs
+        )
 
 
 # Convenience function for multiple repositories collection
