@@ -10,9 +10,7 @@ import os
 from hsbriskevaluator.utils.file import get_data_dir
 
 # Add the src directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
-from hsbriskevaluator.collector.github_collector import collect_github_repo_info
+from hsbriskevaluator.collector import collect_all
 
 async def test_collector():
     """Test the GitHub collector"""
@@ -20,11 +18,10 @@ async def test_collector():
         print("Testing GitHub collector...")
         
         # Test with a small public repo
-        repo_info = await collect_github_repo_info(
-            'tukaani-project/xz', 
-            max_contributors=3, 
-            max_issues=3, 
-            max_prs=3
+        repo_info = await collect_all(
+            pkt_type='debian',
+            pkt_name='xz-utils',
+            repo_name='tukaani-project/xz', 
         )
         
         print(f"✅ Successfully collected info for {repo_info.repo_id}")

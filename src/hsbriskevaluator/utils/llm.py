@@ -8,6 +8,7 @@ from langchain_community.cache import SQLiteCache
 from langchain_core.language_models import BaseChatModel
 from pathlib import Path
 
+
 def get_model(model_name) -> BaseChatModel:
     return ChatOpenAI(
         base_url="https://openrouter.ai/api/v1",

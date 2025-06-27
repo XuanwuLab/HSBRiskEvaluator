@@ -30,17 +30,17 @@ from .base import (
     EvalResult,
     CommunityEvalResult,
     PayloadHiddenEvalResult,
-    DependencyEvalResult
+    DependencyEvalResult,
 )
 
 __all__ = [
-    'HSBRiskEvaluator',
-    'CommunityEvaluator',
-    'PayloadEvaluator',
-    'DependencyEvaluator',
-    'BaseEvaluator',
-    'EvalResult',
-    'CommunityEvalResult',
-    'PayloadHiddenEvalResult',
-    'DependencyEvalResult'
+    "HSBRiskEvaluator",
+    "CommunityEvaluator",
+    "PayloadEvaluator",
+    "DependencyEvaluator",
+    "BaseEvaluator",
+    "EvalResult",
+    "CommunityEvalResult",
+    "PayloadHiddenEvalResult",
+    "DependencyEvalResult",
 ]
