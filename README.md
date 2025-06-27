@@ -1,6 +1,3 @@
-Here's the updated README focused on single evaluation analysis in a markdown container:
-
-```markdown
 # HSB Risk Evaluator
 
 The Highly Stealthy Backdoor (HSB) Risk Evaluator provides security risk assessment for software repositories by analyzing individual evaluation entries across three key dimensions.
