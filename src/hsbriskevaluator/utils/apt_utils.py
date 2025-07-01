@@ -39,7 +39,6 @@ class AptUtils:
     def __init__(self, max_concurrency: int = 5):
         self.max_concurrency = max_concurrency
         self._package_cache: Dict[str, PackageInfo] = {}
-
     def run_command(self, command: List[str]) -> str:
         """Run a command and return its output"""
         try:
@@ -91,7 +90,7 @@ class AptUtils:
             if not line:
                 continue
 
-            if line.startswith("Essential:"):
+            if line.startswith("Essential:") or line.startswith("Build-Essential:"):
                 essential = line.split(":", 1)[1].strip()
             elif line.startswith("Priority:"):
                 priority = line.split(":", 1)[1].strip()
@@ -365,3 +364,9 @@ class AptUtils:
                 current_package = stripped_line
 
         return dependencies
+    def get_package_git(self, package_name: str) -> str:
+        try:
+            return self.run_command(["apt-cache", "showsrc", package_name]).split("Vcs-Git: ")[1].split("\n")[0]
+        except IndexError:
+            logger.warning(f"Failed to get git repository for package {package_name}")
+            raise

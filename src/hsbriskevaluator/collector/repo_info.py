@@ -31,7 +31,8 @@ class GithubEvent(BaseModel):
         "PushEvent",
         "ReleaseEvent",
     ] = Field(description="type of the event, such as push, pull_request, issue, etc.")
-    actor: str = Field(description="username of the user who triggered the event")
+    actor: str = Field(
+        description="username of the user who triggered the event")
     timestamp: str = Field(description="timestamp when the event occurred")
     payload: dict = Field(
         description="payload of the event, containing additional information such as issue"
@@ -45,6 +46,14 @@ class UserRole(BaseModel):
     timestamp: str = Field(description="timestamp when the role was assigned")
 
 
+class Commit(BaseModel):
+    hash: str = Field(description="SHA of the commit")
+    committer: str = Field(
+        description="username of the user who made the commit")
+    message: str = Field(description="commit message")
+    timestamp: str = Field(description="timestamp when the commit was made")
+
+
 class GithubUser(BaseModel):
     username: str = Field(description="username of the user")
     name: str = Field(description="name of the user")
@@ -56,8 +65,10 @@ class GithubUser(BaseModel):
 
 
 class Comment(BaseModel):
-    username: str = Field(description="username of the user who made the comment")
+    username: str = Field(
+        description="username of the user who made the comment")
     content: str = Field(description="content of the comment")
+    timestamp: str = Field(description="timestamp when the comment was made")
 
 
 class Issue(BaseModel):
@@ -65,7 +76,8 @@ class Issue(BaseModel):
     author: str = Field(description="author of the issue")
     title: str = Field(description="title of the issue")
     body: str = Field(description="body content of the issue")
-    comments: list[Comment] = Field(description="list of comments in the issue")
+    comments: list[Comment] = Field(
+        description="list of comments in the issue")
     status: Literal["open", "closed"] = Field(
         description="status of the issue, can be open or closed"
     )
@@ -76,16 +88,22 @@ class Issue(BaseModel):
 
 class PullRequest(Issue):
     approvers: list[str] = Field(description="approver of the pull request")
-    reviewers: list[str] = Field(description="list of reviewers for the pull request")
+    reviewers: list[str] = Field(
+        description="list of reviewers for the pull request")
     merger: str = Field(description="merger of the pull request")
     status: Literal["open", "closed", "merged"] = Field(
         description="status of the pull request"
     )
-    merged_at: str | None = Field(description="merge timestamp if merged", default=None)
+    merged_at: str | None = Field(
+        description="merge timestamp if merged", default=None)
+    changed_files: list[str] = Field(
+        description="list of changed files in the pull request")
+    commits: list[Commit] = Field(
+        description="list of commits in the pull request")
 
 
 class RepoInfo(BaseModel):
-    pkt_type: Literal["debian","others"] = "debian"  # only support debian
+    pkt_type: Literal["debian", "others"] = "debian"  # only support debian
     pkt_name: str = Field(
         description="package name in package management system such as apt."
     )
@@ -93,13 +111,16 @@ class RepoInfo(BaseModel):
         description="unique identifier for the repository, usually the orgname-repo_name format"
     )
     url: str = Field(description="URL of the repository")
+    commit_list: list[Commit] = Field(
+        description="List of commits in the repository")
     contributor_list: list[GithubUser] = Field(
         description="List of contributors to the repository"
     )
     pr_list: list[PullRequest] = Field(
         description="List of pull requests in the repository"
     )
-    issue_list: list[Issue] = Field(description="List of issues in the repository")
+    issue_list: list[Issue] = Field(
+        description="List of issues in the repository")
     binary_file_list: list[str] = Field(
         description="List of binary files in the repository"
     )

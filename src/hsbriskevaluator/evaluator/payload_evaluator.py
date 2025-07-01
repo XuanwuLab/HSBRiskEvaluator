@@ -12,7 +12,6 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 
-
 class PayloadEvaluator(BaseEvaluator):
     """Evaluator for Difficulty of Hiding Malicious Code metrics"""
 
@@ -33,7 +32,7 @@ class PayloadEvaluator(BaseEvaluator):
         try:
             # Analyze binary files in the repository (already verified by collector)
             allows_binary_test_files, test_files_details = self._check_binary_test_files()
-            allows_binary_document_files,document_files_details = self._check_binary_document_files()
+            allows_binary_document_files, document_files_details = self._check_binary_document_files()
 
             # Count and analyze binary files
             binary_files_count = len(self.repo_info.binary_file_list)
@@ -44,10 +43,11 @@ class PayloadEvaluator(BaseEvaluator):
                 allows_binary_test_files=allows_binary_test_files,
                 allows_binary_document_files=allows_binary_document_files,
                 binary_files_count=binary_files_count,
-                details = test_files_details + document_files_details
+                details=test_files_details + document_files_details
             )
 
-            logger.info(f"Payload evaluation completed for {self.repo_info.repo_id}")
+            logger.info(
+                f"Payload evaluation completed for {self.repo_info.repo_id}")
             return result
 
         except Exception as e:
@@ -68,7 +68,7 @@ class PayloadEvaluator(BaseEvaluator):
                 logger.debug(
                     f"LLM identified test binary file: {file_path} - {detail.reason}"
                 )
-            details.append(detail) 
+            details.append(detail)
 
         test_binaries = len(test_binary_files) > 0
 
@@ -141,7 +141,8 @@ class PayloadEvaluator(BaseEvaluator):
 
             response_content = response.content
             if isinstance(response_content, str):
-                analysis = PayloadHiddenDetail.model_validate_json(response_content)
+                analysis = PayloadHiddenDetail.model_validate_json(
+                    response_content)
                 return analysis
             else:
                 logger.warning(
@@ -155,7 +156,8 @@ class PayloadEvaluator(BaseEvaluator):
                 )
 
         except Exception as e:
-            logger.warning(f"LLM analysis failed for file {file_path}: {str(e)}")
+            logger.warning(
+                f"LLM analysis failed for file {file_path}: {str(e)}")
             return PayloadHiddenDetail(
                 reason=f"Analysis failed: {str(e)}",
                 file_type="unknown",

@@ -1,7 +1,7 @@
 import logging
 import yaml
 from pathlib import Path
-from typing import List, Dict, Set, Optional
+from typing import List, Dict, Set, Optional, Tuple
 from hsbriskevaluator.evaluator.base import (
     BaseEvaluator,
     DependencyEvalResult,
@@ -19,39 +19,28 @@ class DependencyEvaluator(BaseEvaluator):
     def __init__(self, repo_info: RepoInfo, max_concurrency: int = 5):
         super().__init__(repo_info)
         self.apt_utils = AptUtils(max_concurrency=max_concurrency)
-        self.cloud_product_packages = self._load_cloud_product_packages()
+        self.cloud_product_packages, self.cloud_product_dependencies = self._load_yaml(
+            "cloud_products.yaml")
+        self.os_default_packages, self.os_default_dependencies = self._load_yaml(
+            "os_default.yaml")
+        self.mainstream_os_packages, self.mainstream_os_dependencies = self._load_yaml(
+            "mainstream_os.yaml")
 
         # Cache for OS default and mainstream packages discovered via apt
         self._os_default_cache: Set[str] = set()
         self._mainstream_os_cache: Set[str] = set()
         self._cache_initialized = False
 
-    def _load_cloud_product_packages(self) -> Set[str]:
-        """Load cloud product packages from YAML file"""
+    def _load_yaml(self, filename: str) -> Tuple[Set[str], Set[str]]:
         try:
-            yaml_path = Path(__file__).parent / "cloud_products.yaml"
+            yaml_path = Path(__file__).parent / filename
             with open(yaml_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
-                cloud_packages = set(data.get("cloud_products", []))
-                logger.info(
-                    f"Loaded {len(cloud_packages)} cloud product packages from YAML"
-                )
-                return cloud_packages
+                packages = set(data.get("packages", []))
+                dependencies = set(data.get("dependencies", []))
+                return packages, dependencies
         except Exception as e:
-            logger.error(f"Failed to load cloud product packages: {str(e)}")
-            # Fallback to minimal set
-            return {
-                "aws-cli",
-                "awscli",
-                "azure-cli",
-                "google-cloud-sdk",
-                "kubectl",
-                "terraform",
-                "ansible",
-                "docker",
-                "kubernetes",
-                "helm",
-            }
+            return set(), set()
 
     def evaluate(self) -> DependencyEvalResult:
         """Evaluate dependency location metrics"""
@@ -61,23 +50,17 @@ class DependencyEvaluator(BaseEvaluator):
 
         try:
             # Analyze package classification
-            dependency_detail = self._analyze_package_dependencies()
 
             # Calculate supply chain risk score
 
             result = DependencyEvalResult(
-                is_os_default_dependency=len(dependency_detail.os_default_dependent)
-                > 0,
-                is_mainstream_os_dependency=len(dependency_detail.mainstream_dependent)
-                > 0,
-                is_cloud_product_dependency=len(
-                    dependency_detail.cloud_product_dependent
-                )
-                > 0,
-                details=dependency_detail,
+                is_os_default_dependency=self.repo_info.pkt_name in self.os_default_dependencies,
+                is_mainstream_os_dependency=self.repo_info.pkt_name in self.mainstream_os_dependencies,
+                is_cloud_product_dependency=self.repo_info.pkt_name in self.cloud_product_dependencies,
             )
 
-            logger.info(f"Dependency evaluation completed for {self.repo_info.repo_id}")
+            logger.info(
+                f"Dependency evaluation completed for {self.repo_info.repo_id}")
             return result
 
         except Exception as e:

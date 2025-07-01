@@ -26,9 +26,11 @@ class HSBRiskEvaluator(BaseEvaluator):
         self.max_concurrency = max_concurrency
 
         # Initialize individual evaluators
-        self.community_evaluator = CommunityEvaluator(repo_info, llm_model_name)
+        self.community_evaluator = CommunityEvaluator(
+            repo_info, llm_model_name)
         self.payload_evaluator = PayloadEvaluator(repo_info, llm_model_name)
-        self.dependency_evaluator = DependencyEvaluator(repo_info, max_concurrency)
+        self.dependency_evaluator = DependencyEvaluator(
+            repo_info, max_concurrency)
 
     def evaluate(self) -> EvalResult:
         """Perform comprehensive HSB risk evaluation"""
@@ -53,7 +55,8 @@ class HSBRiskEvaluator(BaseEvaluator):
                 dependency=dependency_result,
             )
 
-            logger.info(f"HSB risk evaluation completed for {self.repo_info.repo_id}")
+            logger.info(
+                f"HSB risk evaluation completed for {self.repo_info.repo_id}")
 
             return result
 
@@ -67,9 +70,11 @@ class HSBRiskEvaluator(BaseEvaluator):
 
         with ThreadPoolExecutor(max_workers=self.max_concurrency) as executor:
             # Submit all evaluation tasks
-            community_future = executor.submit(self.community_evaluator.evaluate)
+            community_future = executor.submit(
+                self.community_evaluator.evaluate)
             payload_future = executor.submit(self.payload_evaluator.evaluate)
-            dependency_future = executor.submit(self.dependency_evaluator.evaluate)
+            dependency_future = executor.submit(
+                self.dependency_evaluator.evaluate)
 
             # Wait for all results
             try:
@@ -87,4 +92,3 @@ class HSBRiskEvaluator(BaseEvaluator):
             except Exception as e:
                 logger.error(f"Evaluation failed: {str(e)}")
                 raise
-

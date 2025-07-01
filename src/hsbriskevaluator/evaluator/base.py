@@ -14,8 +14,14 @@ class CommunityEvalResult(BaseModel):
     pr_reviewers_count: int = Field(
         description="Number of people with authority to review pull requests"
     )
-    required_reviewers_count: int = Field(
-        description="Number of reviewers required to approve a PR before merge"
+    required_reviewers_distribution: list[float] = Field(
+        description="Distribution of reviewers required to approve a PR before merge"
+    )
+    estimated_prs_to_become_maintainer: float = Field(
+        description="Estimated number of PRs needed to become a maintainer"
+    )
+    estimated_prs_to_become_reviewer: float = Field(
+        description="Estimated number of PRs needed to become a maintainer"
     )
     prs_merged_without_discussion_count: int = Field(
         description="Number of pull requests merged without discussion"
@@ -39,6 +45,7 @@ class PayloadHiddenDetail(BaseModel):
     file_type: str
     is_test_file: bool
     is_documentation: bool
+
 
 class PayloadHiddenEvalResult(BaseModel):
     """Difficulty of Hiding Malicious Code evaluation results"""
