@@ -180,7 +180,7 @@ class CommunityEvaluator(BaseEvaluator):
             f"Average time to become reviewer: {mean(activities) if len(activities) else 0.0} PRs")
         return mean(activities) if len(activities) else 0.0
 
-    def _analyze_required_reviewers(self) -> list[float]:
+    def _analyze_required_reviewers(self) -> dict[int, float]:
         """Estimate minimum required reviewers for PR approval"""
         # Analyze merged PRs to estimate review requirements
         # This is a heuristic since we don't have direct access to branch protection rules
@@ -192,16 +192,20 @@ class CommunityEvaluator(BaseEvaluator):
             pr for pr in self.repo_info.pr_list if pr.status == "merged"]
 
         if not merged_prs:
-            return []
+            return {}
 
         # Simple heuristic: if most PRs have approvers, assume 1 reviewer required
         # In practice, this would need more sophisticated analysis
 
-        prs_with_approvers = [
-            0]*(max([(len(pr.approvers) if pr.approvers else 0) for pr in merged_prs])+1)
+        prs_with_approvers = {}
         for pr in merged_prs:
-            prs_with_approvers[len(pr.approvers) if pr.approvers else 0] += 1
-        return list(map(lambda cnt: cnt/len(merged_prs), prs_with_approvers))
+            approvers_count = len(pr.approvers)
+            if approvers_count not in prs_with_approvers.keys():
+                prs_with_approvers[approvers_count]=0
+            prs_with_approvers[approvers_count]+=1
+        for key in prs_with_approvers.keys():
+            prs_with_approvers[key]/=len(merged_prs)
+        return prs_with_approvers
 
     def _count_prs_without_discussion(self) -> int:
         """Count PRs merged without any discussion"""

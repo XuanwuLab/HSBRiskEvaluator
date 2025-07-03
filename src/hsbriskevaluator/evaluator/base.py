@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Dict
 from hsbriskevaluator.collector.repo_info import RepoInfo
 from hsbriskevaluator.utils.apt_utils import Dependent
 from pydantic import BaseModel, Field
-
 
 class CommunityEvalResult(BaseModel):
     """Community Quality evaluation results"""
@@ -14,7 +13,7 @@ class CommunityEvalResult(BaseModel):
     pr_reviewers_count: int = Field(
         description="Number of people with authority to review pull requests"
     )
-    required_reviewers_distribution: list[float] = Field(
+    required_reviewers_distribution: Dict[int, float] = Field(
         description="Distribution of reviewers required to approve a PR before merge"
     )
     estimated_prs_to_become_maintainer: float = Field(
