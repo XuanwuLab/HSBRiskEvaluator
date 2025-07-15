@@ -267,6 +267,8 @@ class CommunityEvaluator(BaseEvaluator):
         - is_inconsistent: boolean (true if potentially suspicious/inconsistent)
         - confidence: float (0.0 to 1.0)
         - reason: string (brief explanation)
+
+        Don't include any other text, just the JSON response.
         """)
 
         try:

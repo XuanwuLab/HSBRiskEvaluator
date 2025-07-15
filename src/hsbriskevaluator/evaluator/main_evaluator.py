@@ -4,6 +4,7 @@ from hsbriskevaluator.evaluator.base import BaseEvaluator, EvalResult
 from hsbriskevaluator.evaluator.community_evaluator import CommunityEvaluator
 from hsbriskevaluator.evaluator.payload_evaluator import PayloadEvaluator
 from hsbriskevaluator.evaluator.dependency_evaluator import DependencyEvaluator
+from hsbriskevaluator.evaluator.CI_evaluator import CIEvaluator
 from hsbriskevaluator.collector.repo_info import RepoInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
@@ -31,6 +32,7 @@ class HSBRiskEvaluator(BaseEvaluator):
         self.payload_evaluator = PayloadEvaluator(repo_info, llm_model_name)
         self.dependency_evaluator = DependencyEvaluator(
             repo_info, max_concurrency)
+        self.CI_evaluator = CIEvaluator(repo_info, llm_model_name)
 
     def evaluate(self) -> EvalResult:
         """Perform comprehensive HSB risk evaluation"""
@@ -44,6 +46,7 @@ class HSBRiskEvaluator(BaseEvaluator):
                 community_result,
                 payload_result,
                 dependency_result,
+                CI_result,
             ) = self._run_evaluations_concurrently()
 
             # Calculate overall risk score
@@ -53,6 +56,7 @@ class HSBRiskEvaluator(BaseEvaluator):
                 community_quality=community_result,
                 payload_hidden_difficulty=payload_result,
                 dependency=dependency_result,
+                ci=CI_result,
             )
 
             logger.info(
@@ -75,6 +79,7 @@ class HSBRiskEvaluator(BaseEvaluator):
             payload_future = executor.submit(self.payload_evaluator.evaluate)
             dependency_future = executor.submit(
                 self.dependency_evaluator.evaluate)
+            CI_future = executor.submit(self.CI_evaluator.evaluate)
 
             # Wait for all results
             try:
@@ -86,8 +91,10 @@ class HSBRiskEvaluator(BaseEvaluator):
 
                 dependency_result = dependency_future.result()
                 logger.debug("Dependency evaluation completed")
-
-                return community_result, payload_result, dependency_result
+                
+                CI_result = CI_future.result()
+                logger.debug("CI evaluation completed")
+                return community_result, payload_result, dependency_result, CI_result
 
             except Exception as e:
                 logger.error(f"Evaluation failed: {str(e)}")

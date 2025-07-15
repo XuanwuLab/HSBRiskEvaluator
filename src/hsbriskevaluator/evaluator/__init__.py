@@ -25,12 +25,14 @@ from .main_evaluator import HSBRiskEvaluator
 from .community_evaluator import CommunityEvaluator
 from .payload_evaluator import PayloadEvaluator
 from .dependency_evaluator import DependencyEvaluator
+from .CI_evaluator import CIEvaluator
 from .base import (
     BaseEvaluator,
     EvalResult,
     CommunityEvalResult,
     PayloadHiddenEvalResult,
     DependencyEvalResult,
+    CIEvalResult,
 )
 
 __all__ = [
@@ -43,4 +45,5 @@ __all__ = [
     "CommunityEvalResult",
     "PayloadHiddenEvalResult",
     "DependencyEvalResult",
+    "CIEvalResult",
 ]

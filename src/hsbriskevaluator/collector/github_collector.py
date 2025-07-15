@@ -30,7 +30,7 @@ from tenacity import (
 )
 from dotenv import load_dotenv
 
-from .repo_info import RepoInfo, GithubUser, Issue, PullRequest, Comment, GithubEvent, Commit
+from .repo_info import RepoInfo, GithubUser, Issue, PullRequest, Comment, GithubEvent, Commit, Workflow, CheckRun
 from ..utils.file import get_data_dir, is_binary
 
 load_dotenv()
@@ -474,7 +474,48 @@ class GitHubRepoCollector:
                 return []
 
         return await self._run_in_executor(_fetch_commits)
-
+    async def _get_workflows(self, repo: Repository,local_repo_path: Path) -> List[Workflow]:
+        def _fetch_workflows():
+            workflows = []
+            try:
+                for workflow in repo.get_workflows():   
+                    file_path= local_repo_path / workflow.path
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                    except FileNotFoundError:
+                        content = "Not from a file in repo"
+                    workflows.append(Workflow(name = workflow.name, content = content, path=workflow.path))
+                logger.info(
+                    f"Retrieved {len(workflows)} workflows for {repo.full_name}"
+                )
+                return workflows
+            except GithubException as e:
+                logger.error(f"Error fetching workflows: {e}")
+                return []
+        return await self._run_in_executor(_fetch_workflows)
+    async def _get_check_runs(self, repo: Repository) -> List[CheckRun]:
+        def _fetch_check_runs():
+            check_runs = set()
+            try:
+                def add_check_run(commit: GithubCommit):
+                    for check_run in commit.get_check_runs():
+                        check_runs.add(check_run.name)
+                    for status in commit.get_statuses():
+                        check_runs.add(status.context)
+                for commit in repo.get_commits()[:3]:
+                    add_check_run(commit)
+                for pull in repo.get_pulls(state="all")[:3]:
+                    for commit in pull.get_commits():
+                        add_check_run(commit)
+                logger.info(
+                    f"Retrieved {len(check_runs)} check runs for {repo.full_name}"
+                )
+                return list(map(lambda name: CheckRun(name=name), check_runs))
+            except GithubException as e:
+                logger.error(f"Error fetching checkruns: {e}")
+                return []
+        return await self._run_in_executor(_fetch_check_runs)
     def search_repo(self, pkg_name: str) -> Repository:
         """
         Search for a repository by name using the GitHub search API
@@ -535,14 +576,16 @@ class GitHubRepoCollector:
                 self._get_events(repo, max_events))
             commits_task = asyncio.create_task(
                 self._get_commits(repo, max_commits))
-
             # Use local binary file detection if repository was cloned, otherwise use API
             data_dir = get_data_dir()
             local_repo_path = data_dir / local_repo_dir
             binary_files_task = asyncio.create_task(
                 self._find_binary_files_local(local_repo_path)
             )
-
+            workflows_task = asyncio.create_task(
+                self._get_workflows(repo, local_repo_path))
+            check_runs_task = asyncio.create_task(
+                self._get_check_runs(repo))
             # Wait for all tasks to complete
             (
                 contributors,
@@ -550,9 +593,11 @@ class GitHubRepoCollector:
                 pull_requests,
                 events,
                 binary_files,
-                commits
+                commits,
+                workflows,
+                check_runs
             ) = await asyncio.gather(
-                contributors_task, issues_task, prs_task, events_task, binary_files_task, commits_task
+                contributors_task, issues_task, prs_task, events_task, binary_files_task, commits_task, workflows_task, check_runs_task
             )
 
             # Create RepoInfo model
@@ -568,6 +613,8 @@ class GitHubRepoCollector:
                 binary_file_list=binary_files,
                 local_repo_dir=local_repo_dir,
                 event_list=events,
+                workflow_list=workflows,
+                check_run_list=check_runs
             )
 
             logger.info(f"Successfully collected repo info for {repo_name}")

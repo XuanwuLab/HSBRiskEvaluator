@@ -133,6 +133,8 @@ class PayloadEvaluator(BaseEvaluator):
         - file_type: string (inferred file type/purpose, e.g., "test_resource", "documentation_image", "executable", etc.)
         - is_test_file: boolean (true if this appears to be a test file or test resource)
         - is_documentation: boolean (true if this appears to be documentation-related)
+
+        Don't include any other text, just the JSON response.
         """
         )
 

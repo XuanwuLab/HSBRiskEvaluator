@@ -88,6 +88,38 @@ class DependencyEvalResult(BaseModel):
         default=None, description="Detailed analysis of dependency classification"
     )
 
+class DangerousTriggerAnalysis(BaseModel):
+    is_dangerous: bool = Field(
+        description="Whether the trigger is considered dangerous"
+    )
+    danger_level: float = Field(
+        description="Score for dangerous trigger in workflow"
+    )
+    reason: str= Field(
+        description="Reason for considering the trigger dangerous"
+    )
+
+
+class WorkflowAnalysis(BaseModel):
+    name: str
+    path: str
+    dangerous_token_permission: bool = Field(
+        description="Danger level for token permissions in workflow"
+    )
+    dangerous_action_provider_or_pin: bool = Field(
+        description="Danger level for action provider and pinning in workflow"
+    )
+    dangerous_trigger: DangerousTriggerAnalysis = Field( 
+        description="Analysis for dangerous triggers in workflow"
+    )
+
+class CIEvalResult(BaseModel):
+    has_dependabot: bool = Field(
+        description="Whether repository has Dependabot enabled"
+    )
+    workflow_analysis: list[WorkflowAnalysis] = Field(
+        description="Detailed analysis of CI workflows"
+    )
 
 class EvalResult(BaseModel):
     """Complete evaluation results for all risk categories"""
@@ -95,6 +127,7 @@ class EvalResult(BaseModel):
     community_quality: CommunityEvalResult
     payload_hidden_difficulty: PayloadHiddenEvalResult
     dependency: DependencyEvalResult
+    ci: CIEvalResult
 
 
 class BaseEvaluator(ABC):

@@ -101,6 +101,13 @@ class PullRequest(Issue):
     commits: list[Commit] = Field(
         description="list of commits in the pull request")
 
+class Workflow(BaseModel):
+    name: str = Field(description="name of the workflow")
+    content: str = Field(description="content of the workflow file")
+    path: str = Field(description="path of the workflow file in the repository")
+
+class CheckRun(BaseModel):
+    name: str = Field(description="name of the check run")
 
 class RepoInfo(BaseModel):
     pkt_type: Literal["debian", "others"] = "debian"  # only support debian
@@ -130,7 +137,14 @@ class RepoInfo(BaseModel):
     event_list: list[GithubEvent] = Field(
         description="List of events in the repository, such as pushes, issues, pull requests, etc."
     )
+    workflow_list: list[Workflow] = Field(
+        description="List of workflows in the repository"
+    )
+    check_run_list: list[CheckRun] = Field(
+        description="List of check runs in the repository"
+    )
     dependent_list: list[Dependent] = Field(
         description="List of recursive dependencies from package_management system",
         default_factory=list,
     )
+    
