@@ -80,7 +80,7 @@ def load_all_packages() -> List[str]:
     return unique_packages
 
 
-def save_package_info(package: str, git_url: str) -> None:
+def save_package_info(package: str, git_url: str, failed_message:str) -> None:
     """
     Save package information as a YAML file in the 'package' directory.
 
@@ -95,6 +95,7 @@ def save_package_info(package: str, git_url: str) -> None:
     package_data = {
         "package": package,
         "git_url": git_url,
+        "failed_message": failed_message,
         "repo_info": {}
     }
     with open(package_file, "w", encoding="utf-8") as f:
@@ -119,11 +120,10 @@ def process_packages(packages: List[str]) -> Set[str]:
         try:
             git_url = get_git_url(package)
             logger.info(f"Package: {package}, Git URL: {git_url}")
-            save_package_info(package, git_url)
+            save_package_info(package, git_url, failed_message="")
         except Exception as e:
-            git_url = apt_utils.get_package_git(package)
             logger.warning(f"Failed to get Git URL for package '{package}', using APT URL: {git_url}")
-            save_package_info(package, git_url)
+            save_package_info(package, "", failed_message=str(e))
             failed_packages.add(package)
 
     return failed_packages
