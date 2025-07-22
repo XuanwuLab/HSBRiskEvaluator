@@ -44,6 +44,9 @@ class Comparator:
         )
     def _clone_repo(self, repo_url: str, dest_dir: str) -> str:
         data_dir = get_data_dir() / "diff" / dest_dir 
+        if data_dir.exists():
+            import shutil
+            shutil.rmtree(data_dir)
         subprocess.run(["git", "clone", repo_url, str(data_dir)], check=True)
         return str(data_dir)
     def clone_and_compare(self, package: str) -> DiffResult:

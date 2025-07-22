@@ -12,37 +12,38 @@ from hsbriskevaluator.utils.file import get_data_dir
 from hsbriskevaluator.collector import collect_all
 from datetime import timedelta
 
+
 async def test_collector():
     """Test the GitHub collector"""
     try:
         print("Testing GitHub collector...")
-        
+
         # Test with a small public repo
         repo_info = await collect_all(
             pkt_type='debian',
             pkt_name='xz-utils',
-            repo_name='tukaani-project/xz', 
+            repo_name='tukaani-project/xz',
             time_window=timedelta(days=365),
         )
-        
+
         print(f"✅ Successfully collected info for {repo_info.repo_id}")
         print(f"   - URL: {repo_info.url}")
         print(f"   - Issues: {len(repo_info.issue_list)}")
         print(f"   - Pull Requests: {len(repo_info.pr_list)}")
         print(f"   - Binary files: {len(repo_info.binary_file_list)}")
-        
+
         # Print some sample data
-        
+
         if repo_info.pr_list:
             pr = repo_info.pr_list[0]
             print(f"   - First PR: #{pr.number} - {pr.title[:50]}...")
             print(f"     Status: {pr.status}, Author: {pr.author}")
-        
+
         print("\n🎉 Test successful!")
         with open(get_data_dir() / 'test_collector_output.json', 'w') as f:
             f.write(repo_info.model_dump_json(indent=2))
         return True
-        
+
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback

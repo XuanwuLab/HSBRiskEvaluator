@@ -9,10 +9,10 @@ from pydantic import BaseModel, Field
 class CommunityEvalResult(BaseModel):
     """Community Quality evaluation results"""
     stargazers_count: int = Field(
-        description="Number of stargazers on the repository"
+        description="Number of stargazers of the repository"
     )
     watchers_count: int = Field(
-        description="Number of watchers on the repository"
+        description="Number of watchers of the repository"
     )
     forks_count: int = Field(
         description="Number of forks of the repository"
@@ -24,9 +24,9 @@ class CommunityEvalResult(BaseModel):
         description="Number of direct commits to main branch"
     )
     direct_commit_users_count: int = Field(
-        description="Number of people allowed to directly submit code to main branch"
+        description="Number of users that submitted some code to main branch"
     )
-    maintainers: int = Field(
+    maintainers_count: int = Field(
         description="Number of maintainers with authority to merge pull requests or directly commit code"
     )
     pr_reviewers_count: int = Field(
@@ -39,7 +39,7 @@ class CommunityEvalResult(BaseModel):
         description="Estimated number of PRs needed to become a maintainer"
     )
     estimated_prs_to_become_reviewer: float = Field(
-        description="Estimated number of PRs needed to become a maintainer"
+        description="Estimated number of PRs needed to become a reviewer"
     )
     prs_merged_without_discussion_count: int = Field(
         description="Number of pull requests merged without discussion"
@@ -59,6 +59,7 @@ class CommunityEvalResult(BaseModel):
 
 
 class PayloadHiddenDetail(BaseModel):
+    file_path: str
     reason: str
     file_type: str
     is_test_file: bool

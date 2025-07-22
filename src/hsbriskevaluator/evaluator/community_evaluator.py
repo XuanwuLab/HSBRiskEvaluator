@@ -61,7 +61,7 @@ class CommunityEvaluator(BaseEvaluator):
                 community_users_count=community_users,
                 direct_commits=direct_commits,
                 direct_commit_users_count=direct_commit_users,
-                maintainers=maintainers,
+                maintainers_count=maintainers,
                 pr_reviewers_count=pr_reviewers,
                 required_reviewers_distribution=required_reviewers,
                 estimated_prs_to_become_maintainer=estimated_prs_to_become_maintainer,

@@ -2,7 +2,6 @@
 
 The Highly Stealthy Backdoor (HSB) Risk Evaluator provides security risk assessment for software repositories by analyzing individual evaluation entries across three key dimensions.
 
-
 ## Overview
 
 The evaluator analyzes repositories across three critical dimensions:
@@ -34,12 +33,14 @@ GITHUB_TOKEN = your_github_token_here
 from hsbriskevaluator.evaluator import HSBRiskEvaluator
 from hsbriskevaluator.collector.repo_info import RepoInfo
 from hsbriskevaluator.collector import collect_all
+from datetime import timedelta
 
 # Load repository information (from collector)
 repo_info = await collect_all(
     pkt_type='debian',
     pkt_name='xz-utils',
-    repo_name='tukaani-project/xz', 
+    repo_name='tukaani-project/xz',
+    time_window=timedelta(days=365),
 )
 # Create evaluator
 evaluator = HSBRiskEvaluator(repo_info)
@@ -47,9 +48,10 @@ evaluator = HSBRiskEvaluator(repo_info)
 # Run evaluation
 result = evaluator.evaluate()
 
-print(result    )
+print(result)
 
 ```
+
 ### Individual Evaluators
 
 You can also use individual evaluators for specific assessments:
@@ -57,23 +59,26 @@ You can also use individual evaluators for specific assessments:
 ```python
 from hsbriskevaluator.evaluator import (
     CommunityEvaluator,
-    PayloadEvaluator, 
-    DependencyEvaluator
+    PayloadEvaluator,
+    DependencyEvaluator,
+    CIEvaluator
 )
 
 # Community evaluation only
 community_eval = CommunityEvaluator(repo_info)
 community_result = community_eval.evaluate()
 
-# Payload evaluation only  
+# Payload evaluation only
 payload_eval = PayloadEvaluator(repo_info)
 payload_result = payload_eval.evaluate()
 
 # Dependency evaluation only
 dependency_eval = DependencyEvaluator(repo_info)
 dependency_result = dependency_eval.evaluate()
-```
 
+CI_eval = CIEvaluator(repo_info)
+CI_result = dependency_eval.evaluate()
+```
 
 ## Evaluation Analysis
 
@@ -83,17 +88,26 @@ Each repository evaluation produces detailed analysis across these core aspects:
 
 ```python
 class CommunityEvalResult(BaseModel):
+    stargazers_count: int                   # Number of stargazers of the repository
+    watchers_count: int                     # Number of watchers of the repository
+    forks_count: int                        # Number of forks of the repository
+    community_users_count: int              # Number of users actively participating in the community
+    direct_commits: int                     # Number of direct commits to the main branch
     direct_commit_users_count: int          # Number of users with direct commit access
+    maintainers_count: int                  # Number of maintainers with authority to merge pull requests or directly commit code
     pr_reviewers_count: int                # Number of active PR reviewers
-    required_reviewers_count: int          # Minimum reviewers required for PR approval
+    required_reviewers_distribution: Dict[int, float] # Distribution of reviewers required to approve a PR before merge, -1 means direct commit
+    estimated_prs_to_become_maintainer: float # Estimated number of PRs needed to become a maintainer
+    estimated_prs_to_become_reviewer: float # Estimated number of PRs needed to become a reviewer
     prs_merged_without_discussion_count: int  # PRs merged without discussion
     prs_with_inconsistent_description_count: int  # PRs with mismatched descriptions
     avg_participants_per_issue: float      # Average participants in issues
     avg_participants_per_pr: float         # Average participants in PRs
-    community_activity_score: float         # Overall community engagement score (0.0-1.0)
+    community_activity_score: float         # Overall community engagement score (0.0-1.0) (just ignore it, do not have a good formula yet)
 ```
 
 **Key Indicators:**
+
 - Few direct committers increases centralization risk
 - Low PR reviewer count suggests limited oversight
 - PRs merged without discussion may bypass scrutiny
@@ -105,11 +119,12 @@ class CommunityEvalResult(BaseModel):
 class PayloadHiddenEvalResult(BaseModel):
     allows_binary_test_files: bool         # Whether binary files are allowed in tests
     allows_binary_document_files: bool     # Whether document binaries are permitted
-    has_payload_trigger_features: bool     # Existence of potential trigger mechanisms
     binary_files_count: int                # Total binary files detected
+    details: list[PayloadHiddenDetail]     # Details of the binary files
 ```
 
 **Key Indicators:**
+
 - Binary files in tests can hide malicious executables
 - Document binaries may contain embedded malware
 - Trigger features could enable payload execution
@@ -125,36 +140,93 @@ class DependencyEvalResult(BaseModel):
 ```
 
 **Key Indicators:**
+
 - OS-level dependencies have widespread impact
 - Mainstream dependencies increase attack surface
 - Cloud dependencies affect infrastructure security
 
-## Example Analysis Output
+### 4. CI Analysis
 
 ```python
+class WorkflowAnalysis(BaseModel):
+    name: str
+    path: str
+    dangerous_token_permission: bool # Whether this workflow have dangerous token permissions
+    dangerous_action_provider_or_pin: bool # Whether this workflow have dangerous action provider or pinning
+    dangerous_trigger: DangerousTriggerAnalysis # Analysis for dangerous triggers in workflow
+
+class CIEvalResult(BaseModel):
+    has_dependabot: bool # Whether repository has Dependabot enabled
+    workflow_analysis: list[WorkflowAnalysis] = # Analysis for each CI workflow
+```
+
+### Diff github repo with debian repo
+
+```python
+from hsbriskevaluator.collector import GitHubRepoCollector
+from hsbriskevaluator.utils.diff import Comparator
+from hsbriskevaluator.utils.apt_utils import AptUtils
+from hsbriskevaluator.utils.file import get_data_dir
+
+github_collector = GitHubRepoCollector()
+apt_utils = AptUtils()
+comparator = Comparator(github_collector, apt_utils)
+
+diff_result=comparator.clone_and_compare("xz-utils")
+```
+
+## Example Analysis Output
+
+```json
 {
-    "community_quality": {
-        "direct_commit_users_count": 2,
-        "pr_reviewers_count": 3,
-        "required_reviewers_count": 1,
-        "prs_merged_without_discussion_count": 8,
-        "prs_with_inconsistent_description_count": 2,
-        "avg_participants_per_issue": 1.2,
-        "avg_participants_per_pr": 2.1,
-        "community_activity_score": 0.45
-    },
-    "payload_hidden_difficulty": {
-        "allows_binary_test_files": True,
-        "allows_binary_document_files": False,
-        "binary_files_count": 12,
-    },
-    "dependency": {
-        "is_os_default_dependency": False,
-        "is_mainstream_os_dependency": True,
-        "is_cloud_product_dependency": False,
-    }
+  "community_quality": {
+    "stargazers_count": 792,
+    "watchers_count": 792,
+    "forks_count": 162,
+    "community_users_count": 60,
+    "direct_commits": 271,
+    "direct_commit_users_count": 8,
+    "maintainers_count": 8,
+    "pr_reviewers_count": 11,
+    "required_reviewers_distribution": {},
+    "estimated_prs_to_become_maintainer": 1.0,
+    "estimated_prs_to_become_reviewer": 0.7272727272727273,
+    "prs_merged_without_discussion_count": 0,
+    "prs_with_inconsistent_description_count": 0,
+    "avg_participants_per_issue": 2.2413793103448274,
+    "avg_participants_per_pr": 2.111111111111111,
+    "community_activity_score": 0.627
+  },
+  "payload_hidden_difficulty": {
+    "allows_binary_test_files": true,
+    "allows_binary_document_files": false,
+    "binary_files_count": 95
+  },
+  "dependency": {
+    "is_os_default_dependency": true,
+    "is_mainstream_os_dependency": true,
+    "is_cloud_product_dependency": false,
+    "details": null
+  },
+  "ci": {
+    "has_dependabot": false,
+    "workflow_analysis": [
+      {
+        "name": "CI",
+        "path": ".github/workflows/ci.yml",
+        "dangerous_token_permission": false,
+        "dangerous_action_provider_or_pin": true,
+        "dangerous_trigger": {
+          "is_dangerous": false,
+          "danger_level": 0.2,
+          "reason": "The workflow uses safe triggers (push, pull_request, workflow_dispatch), has restricted permissions ({}), and doesn't execute arbitrary user input. The only slight risk comes from running apt-get and brew commands, but these use fixed package names rather than variables. Build parameters are passed through a controlled script rather than directly executing user input."
+        }
+      }
+    ]
+  }
 }
 ```
+
 ## Troubleshooting
 
 ### Common Issues

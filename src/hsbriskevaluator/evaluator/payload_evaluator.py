@@ -133,6 +133,7 @@ class PayloadEvaluator(BaseEvaluator):
         - file_type: string (inferred file type/purpose, e.g., "test_resource", "documentation_image", "executable", etc.)
         - is_test_file: boolean (true if this appears to be a test file or test resource)
         - is_documentation: boolean (true if this appears to be documentation-related)
+        - file_path: string (the original file path for reference)
 
         Don't include any other text, just the JSON response.
         """
@@ -151,6 +152,7 @@ class PayloadEvaluator(BaseEvaluator):
                     f"Unexpected response type from LLM for file {file_path}"
                 )
                 return PayloadHiddenDetail(
+                    file_path=file_path,
                     reason="Failed to parse LLM response",
                     file_type="unknown",
                     is_test_file=False,
@@ -161,6 +163,7 @@ class PayloadEvaluator(BaseEvaluator):
             logger.warning(
                 f"LLM analysis failed for file {file_path}: {str(e)}")
             return PayloadHiddenDetail(
+                file_path=file_path,
                 reason=f"Analysis failed: {str(e)}",
                 file_type="unknown",
                 is_test_file=False,
