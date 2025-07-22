@@ -1,14 +1,33 @@
 from abc import ABC, abstractmethod
+from os import fork
 from typing import Optional, Dict
 from hsbriskevaluator.collector.repo_info import RepoInfo
 from hsbriskevaluator.utils.apt_utils import Dependent
 from pydantic import BaseModel, Field
 
+
 class CommunityEvalResult(BaseModel):
     """Community Quality evaluation results"""
-
+    stargazers_count: int = Field(
+        description="Number of stargazers on the repository"
+    )
+    watchers_count: int = Field(
+        description="Number of watchers on the repository"
+    )
+    forks_count: int = Field(
+        description="Number of forks of the repository"
+    )
+    community_users_count: int = Field(
+        description="Number of users actively participating in the community"
+    )
+    direct_commits: int = Field(
+        description="Number of direct commits to main branch"
+    )
     direct_commit_users_count: int = Field(
         description="Number of people allowed to directly submit code to main branch"
+    )
+    maintainers: int = Field(
+        description="Number of maintainers with authority to merge pull requests or directly commit code"
     )
     pr_reviewers_count: int = Field(
         description="Number of people with authority to review pull requests"
@@ -88,6 +107,7 @@ class DependencyEvalResult(BaseModel):
         default=None, description="Detailed analysis of dependency classification"
     )
 
+
 class DangerousTriggerAnalysis(BaseModel):
     is_dangerous: bool = Field(
         description="Whether the trigger is considered dangerous"
@@ -95,7 +115,7 @@ class DangerousTriggerAnalysis(BaseModel):
     danger_level: float = Field(
         description="Score for dangerous trigger in workflow"
     )
-    reason: str= Field(
+    reason: str = Field(
         description="Reason for considering the trigger dangerous"
     )
 
@@ -109,9 +129,10 @@ class WorkflowAnalysis(BaseModel):
     dangerous_action_provider_or_pin: bool = Field(
         description="Danger level for action provider and pinning in workflow"
     )
-    dangerous_trigger: DangerousTriggerAnalysis = Field( 
+    dangerous_trigger: DangerousTriggerAnalysis = Field(
         description="Analysis for dangerous triggers in workflow"
     )
+
 
 class CIEvalResult(BaseModel):
     has_dependabot: bool = Field(
@@ -120,6 +141,7 @@ class CIEvalResult(BaseModel):
     workflow_analysis: list[WorkflowAnalysis] = Field(
         description="Detailed analysis of CI workflows"
     )
+
 
 class EvalResult(BaseModel):
     """Complete evaluation results for all risk categories"""

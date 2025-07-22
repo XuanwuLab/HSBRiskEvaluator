@@ -1,6 +1,6 @@
 import logging
 from hsbriskevaluator.evaluator.base import BaseEvaluator, CIEvalResult, WorkflowAnalysis, DangerousTriggerAnalysis
-from hsbriskevaluator.collector.repo_info import RepoInfo, Workflow 
+from hsbriskevaluator.collector.repo_info import RepoInfo, Workflow
 from hsbriskevaluator.utils.llm import get_model
 from langchain_core.prompts import ChatPromptTemplate
 import yaml
@@ -8,6 +8,7 @@ import re
 import requests
 
 logger = logging.getLogger(__name__)
+
 
 class CIEvaluator(BaseEvaluator):
     """Evaluator for Community Quality metrics"""
@@ -28,11 +29,11 @@ class CIEvaluator(BaseEvaluator):
                 if workflow.path.startswith(".github"):
                     workflow_analysis.append(self._analyze_all(workflow))
                 elif workflow.path == "dynamic/dependabot/dependabot-updates":
-                    has_dependabot=True
-            
+                    has_dependabot = True
+
             result = CIEvalResult(
-                has_dependabot = has_dependabot,
-                workflow_analysis = workflow_analysis 
+                has_dependabot=has_dependabot,
+                workflow_analysis=workflow_analysis
             )
 
             logger.info(
@@ -42,29 +43,31 @@ class CIEvaluator(BaseEvaluator):
         except Exception as e:
             logger.error(f"Error during community evaluation: {str(e)}")
             raise
+
     def _analyze_all(self, workflow: Workflow) -> WorkflowAnalysis:
-        workflow_dict=yaml.safe_load(workflow.content)
+        workflow_dict = yaml.safe_load(workflow.content)
         return WorkflowAnalysis(name=workflow.name, path=workflow.path, dangerous_token_permission=self._check_token_permissions(workflow_dict), dangerous_action_provider_or_pin=self._check_action_provider_and_pin(workflow_dict), dangerous_trigger=self._check_dangerous_trigger(workflow))
+
     def _check_token_permissions(self, workflow: dict) -> bool:
-        # Check if the workflow has dangerous token permissions or not 
-        missing_permissions=False
+        # Check if the workflow has dangerous token permissions or not
+        missing_permissions = False
         if 'permissions' not in workflow:
             missing_permissions = True
         if workflow.get('permissions') == 'write-all':
-            return True 
+            return True
         for jobs in workflow.get('jobs', {}).values():
             if 'permissions' in jobs:
                 if jobs['permissions'] == 'write-all':
-                    return True 
+                    return True
             else:
                 if missing_permissions:
-                    return True 
-        return False 
+                    return True
+        return False
 
     def _check_action_provider_and_pin(self, workflow: dict) -> bool:
         # Check if the workflow uses actions from untrusted providers or didn't pin the actions to a specific SHA
         if 'jobs' not in workflow:
-            return False 
+            return False
         for job in workflow['jobs'].values():
             if 'steps' not in job:
                 continue
@@ -72,15 +75,15 @@ class CIEvaluator(BaseEvaluator):
                 if 'uses' in step:
                     uses = step['uses']
                     if '@' not in uses:
-                        return True# Unpinned action
+                        return True  # Unpinned action
                     action, version = uses.split('@', 1)
                     if not re.match('[a-f0-9]{40}', version):
-                        return True# Not a SHA
+                        return True  # Not a SHA
                     if action.startswith('actions/') or action.startswith('github/'):
                         continue
                     if "About badges in GitHub Marketplace" not in requests.get(f"https://github.com/marketplace/actions/{action.split('/')[1]}").text:
-                        return True# Untrusted action provider
-        return False 
+                        return True  # Untrusted action provider
+        return False
 
     def _check_dangerous_trigger(self, workflow: Workflow) -> DangerousTriggerAnalysis:
         """Use LLM to analyze if PR description matches its likely implementation"""
@@ -106,7 +109,7 @@ class CIEvaluator(BaseEvaluator):
         try:
             response = self.llm.invoke(
                 prompt.format(
-                    workflow_yml = workflow.content
+                    workflow_yml=workflow.content
                 )
             )
             # Parse LLM response - ensure it's a string
@@ -116,14 +119,14 @@ class CIEvaluator(BaseEvaluator):
                     response_content)
                 return analysis
             else:
-    
+
                 logger.warning(
                     f"Unexpected response type from LLM for {workflow.name}")
                 return DangerousTriggerAnalysis(is_dangerous=False, danger_level=0, reason="Unexpected response type from LLM")
                 return False
 
         except Exception as e:
-            logger.warning(f"LLM analysis failed for {workflow.name}: {str(e)}")
+            logger.warning(
+                f"LLM analysis failed for {workflow.name}: {str(e)}")
             return DangerousTriggerAnalysis(is_dangerous=False, danger_level=0, reason=f"LLM analysis failed for {str(e)}")
             return False
-

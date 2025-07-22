@@ -7,7 +7,8 @@ dependency information from APT.
 """
 
 from typing import Optional
-from .repo_info import GithubUser, Comment, Issue, PullRequest, RepoInfo, Dependent
+from datetime import timedelta
+from .repo_info import Comment, Issue, PullRequest, RepoInfo, Dependent, User
 
 from .github_collector import (
     GitHubRepoCollector,
@@ -24,7 +25,7 @@ from .apt_collector import (
 
 __all__ = [
     # Pydantic models
-    "GithubUser",
+    "User",
     "Comment",
     "Issue",
     "PullRequest",
@@ -46,20 +47,14 @@ async def collect_all(
     pkt_type: str,
     pkt_name: str,
     repo_name: str,
-    max_contributors: Optional[int] = None,
-    max_issues: Optional[int] = None,
-    max_prs: Optional[int] = None,
-    max_events: Optional[int] = None,
+    time_window: Optional[timedelta] = None,
 ):
     """Collect all information about a repository"""
     repo_info = await collect_github_repo_info(
         repo_name=repo_name,
         pkt_type=pkt_type,
         pkt_name=pkt_name,
-        max_contributors=max_contributors,
-        max_issues=max_issues,
-        max_prs=max_prs,
-        max_events=max_events,
+        time_window=time_window
     )
     if pkt_type == "debian":
         repo_info = await enrich_repo_with_dependencies(repo_info)

@@ -9,7 +9,7 @@ import logging
 import os
 import subprocess
 from typing import List, Optional, Dict, Any, cast
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from github import Github, GithubException, RateLimitExceededException
@@ -30,7 +30,8 @@ from tenacity import (
 )
 from dotenv import load_dotenv
 
-from .repo_info import RepoInfo, GithubUser, Issue, PullRequest, Comment, GithubEvent, Commit, Workflow, CheckRun
+from .repo_info import RepoInfo, Issue, PullRequest, Comment, GithubEvent, Commit, Workflow, CheckRun, BasicInfo
+from .repo_info import User
 from ..utils.file import get_data_dir, is_binary
 
 load_dotenv()
@@ -63,21 +64,22 @@ class GitHubRepoCollector:
         self.executor.shutdown(wait=True)
         self.github.close()
 
-    def _convert_to_github_user(self, user: NamedUser) -> GithubUser:
-        """Convert PyGithub NamedUser to GithubUser model"""
-        return GithubUser(
-            username=user.login, name=user.name or "", email=user.email or ""
+    def _convert_to_user(self, user: NamedUser) -> User:
+        return User(
+            username=user.login,
+            email=user.email or "",
+            type=user.type
         )
 
     def _convert_to_comment(
         self, comment: IssueComment | PullRequestComment
     ) -> Comment:
         """Convert PyGithub IssueComment to Comment model"""
-        return Comment(username=comment.user.login, content=comment.body or "", timestamp=comment.created_at.isoformat() if comment.created_at else "")
+        return Comment(user=self._convert_to_user(comment.user), content=comment.body or "", timestamp=comment.created_at.isoformat() if comment.created_at else "")
 
     def _convert_to_commit(self, commit: GithubCommit) -> Commit:
         """Convert PyGithub Commit to Commit model"""
-        return Commit(hash=commit.sha, committer=commit.committer.login if commit.committer else "unknown", message=commit.commit.message or "", timestamp=commit.commit.author.date.isoformat() if commit.commit.committer.date else "")
+        return Commit(hash=commit.sha, author=self._convert_to_user(commit.author or commit.committer or User(username="", email="", type="")), message=commit.commit.message or "", timestamp=commit.commit.committer.date.isoformat() if commit.commit.committer.date else "", pull_numbers=list(map(lambda pr: pr.number, commit.get_pulls())))
 
     def _convert_to_github_event(self, event: GithubEventObj) -> Optional[GithubEvent]:
         """
@@ -118,7 +120,7 @@ class GitHubRepoCollector:
 
         return Issue(
             number=issue.number,
-            author=issue.user.login,
+            author=self._convert_to_user(issue.user),
             title=issue.title,
             body=issue.body or "",
             comments=comments,
@@ -131,23 +133,23 @@ class GitHubRepoCollector:
     def _convert_to_pull_request(self, pr: GithubPR) -> PullRequest:
         """Convert PyGithub PullRequest to PullRequest model"""
         # Get the last approving review
-        approvers: list[str] = []
-        reviewers: list[str] = []
+        approvers: list[User] = []
+        reviewers: list[User] = []
 
         try:
             for review in reversed(list(pr.get_reviews())):
                 if review.state != "COMMENTED":
-                    reviewers.append(review.user.login)
+                    reviewers.append(self._convert_to_user(review.user))
                     if review.state == "APPROVED":
-                        approvers.append(review.user.login)
+                        approvers.append(self._convert_to_user(review.user))
                         break
         except GithubException:
             logger.warning(f"Could not fetch reviews for PR #{pr.number}")
 
         # Get merger information
-        merger = ""
+        merger = User(username="Not merged", email="", type="None")
         if pr.merged and pr.merged_by:
-            merger = pr.merged_by.login
+            merger = self._convert_to_user(pr.merged_by)
 
         # Determine status - ensure it matches the Literal type
         if pr.merged:
@@ -167,12 +169,10 @@ class GitHubRepoCollector:
         updated_at_str = pr.updated_at.isoformat() if pr.updated_at else ""
         merged_at_str = pr.merged_at.isoformat() if pr.merged_at else None
         changed_files = list(map(lambda file: file.filename, pr.get_files()))
-        commits = list(
-            map(lambda commit: self._convert_to_commit(commit), pr.get_commits()))
         return PullRequest(
             number=pr.number,
             title=pr.title,
-            author=pr.user.login,
+            author=self._convert_to_user(pr.user),
             reviewers=reviewers,
             body=pr.body or "",
             comments=comments,
@@ -184,7 +184,6 @@ class GitHubRepoCollector:
             updated_at=updated_at_str,
             merged_at=merged_at_str,
             changed_files=changed_files,
-            commits=commits,
         )
 
     @retry(
@@ -293,50 +292,23 @@ class GitHubRepoCollector:
 
         return await self._run_in_executor(_scan_local_files)
 
-    async def _get_contributors(
-        self, repo: Repository, limit: Optional[int] = None
-    ) -> List[GithubUser]:
-        """
-        Get repository contributors with detailed user information and proper pagination support
-
-        Args:
-            repo: Repository object
-            limit: Maximum number of contributors to fetch. If None, fetch all contributors across all pages.
-        """
-
-        def _fetch_contributors():
-            contributors = []
-            try:
-                # Get repository contributors - this returns a PaginatedList that handles pagination automatically
-                contributors_paginated = repo.get_contributors()
-
-                # Iterate through all contributors across all pages
-                for contributor in contributors_paginated:
-                    # Check limit before processing to avoid unnecessary API calls
-                    if limit is not None and len(contributors) >= limit:
-                        break
-                    contributors.append(
-                        self._convert_to_github_user(contributor))
-
-                logger.info(
-                    f"Retrieved {len(contributors)} contributors for {repo.full_name}"
-                )
-                return contributors
-            except GithubException as e:
-                logger.error(f"Error fetching contributors: {e}")
-                return []
-
-        return await self._run_in_executor(_fetch_contributors)
+    async def _get_basic_info(self, repo: Repository) -> BasicInfo:
+        return BasicInfo(
+            description=repo.description or "",
+            stargazers_count=repo.stargazers_count,
+            watchers_count=repo.watchers_count,
+            forks_count=repo.forks_count,
+        )
 
     async def _get_issues(
-        self, repo: Repository, limit: Optional[int] = None
+        self, repo: Repository, since_timestamp: Optional[datetime] = None
     ) -> List[Issue]:
         """
         Get repository issues (excluding pull requests) with proper pagination support
 
         Args:
             repo: Repository object
-            limit: Maximum number of issues to fetch. If None, fetch all issues across all pages.
+            since_timestamp: 
         """
 
         def _fetch_issues():
@@ -349,7 +321,7 @@ class GitHubRepoCollector:
                 # Iterate through all issues across all pages
                 for issue in issues_paginated:
                     # Check limit before processing to avoid unnecessary API calls
-                    if limit is not None and len(issues) >= limit:
+                    if since_timestamp is not None and issue.created_at < since_timestamp:
                         break
                     # Skip pull requests (they appear in issues endpoint)
                     if issue.pull_request is None:
@@ -365,7 +337,7 @@ class GitHubRepoCollector:
         return await self._run_in_executor(_fetch_issues)
 
     async def _get_pull_requests(
-        self, repo: Repository, limit: Optional[int] = None
+        self, repo: Repository, since_timestamp: Optional[datetime] = None
     ) -> List[PullRequest]:
         """
         Get repository pull requests using search API as suggested
@@ -383,7 +355,7 @@ class GitHubRepoCollector:
                 pulls_paginated = repo.get_pulls(state="all")
                 # Convert search results to actual PR objects and process
                 for pr in pulls_paginated:
-                    if limit is not None and len(pull_requests) >= limit:
+                    if since_timestamp is not None and pr.created_at < since_timestamp:
                         break
                     pull_requests.append(self._convert_to_pull_request(pr))
 
@@ -398,7 +370,7 @@ class GitHubRepoCollector:
         return await self._run_in_executor(_fetch_pull_requests)
 
     async def _get_events(
-        self, repo: Repository, limit: Optional[int] = None
+        self, repo: Repository, since_timestamp: Optional[datetime] = None
     ) -> List[GithubEvent]:
         """
         Get repository events using GitHub Events API with proper pagination support
@@ -418,13 +390,13 @@ class GitHubRepoCollector:
                 # Get repository events - this returns a PaginatedList that handles pagination automatically
                 events_paginated = repo.get_events()
                 logger.info(
-                    f"Fetching events for {repo.full_name} with limit {limit}, get {events_paginated.totalCount} events from github api."
+                    f"Fetching events for {repo.full_name}  get {events_paginated.totalCount} events from github api."
                 )
 
                 # Iterate through all events across all pages
                 for event in events_paginated:
                     # Check limit before processing to avoid unnecessary API calls
-                    if limit is not None and len(events) >= limit:
+                    if since_timestamp is not None and event.created_at < since_timestamp:
                         break
 
                     # Convert event and filter out unwanted types
@@ -442,7 +414,7 @@ class GitHubRepoCollector:
         return await self._run_in_executor(_fetch_events)
 
     async def _get_commits(
-        self, repo: Repository, limit: Optional[int] = None
+        self, repo: Repository, since_timestamp: Optional[datetime] = None
     ) -> List[Commit]:
         """
         Get repository contributors with detailed user information and proper pagination support
@@ -461,8 +433,9 @@ class GitHubRepoCollector:
                 # Iterate through all commits across all pages
                 for commit in commits_paginated:
                     # Check limit before processing to avoid unnecessary API calls
-                    if limit is not None and len(commits) >= limit:
+                    if since_timestamp is not None and commit.commit.committer.date < since_timestamp:
                         break
+
                     commits.append(self._convert_to_commit(commit))
 
                 logger.info(
@@ -474,18 +447,20 @@ class GitHubRepoCollector:
                 return []
 
         return await self._run_in_executor(_fetch_commits)
-    async def _get_workflows(self, repo: Repository,local_repo_path: Path) -> List[Workflow]:
+
+    async def _get_workflows(self, repo: Repository, local_repo_path: Path) -> List[Workflow]:
         def _fetch_workflows():
             workflows = []
             try:
-                for workflow in repo.get_workflows():   
-                    file_path= local_repo_path / workflow.path
+                for workflow in repo.get_workflows():
+                    file_path = local_repo_path / workflow.path
                     try:
                         with open(file_path, 'r', encoding='utf-8') as f:
                             content = f.read()
                     except FileNotFoundError:
                         content = "Not from a file in repo"
-                    workflows.append(Workflow(name = workflow.name, content = content, path=workflow.path))
+                    workflows.append(
+                        Workflow(name=workflow.name, content=content, path=workflow.path))
                 logger.info(
                     f"Retrieved {len(workflows)} workflows for {repo.full_name}"
                 )
@@ -494,6 +469,7 @@ class GitHubRepoCollector:
                 logger.error(f"Error fetching workflows: {e}")
                 return []
         return await self._run_in_executor(_fetch_workflows)
+
     async def _get_check_runs(self, repo: Repository) -> List[CheckRun]:
         def _fetch_check_runs():
             check_runs = set()
@@ -516,6 +492,7 @@ class GitHubRepoCollector:
                 logger.error(f"Error fetching checkruns: {e}")
                 return []
         return await self._run_in_executor(_fetch_check_runs)
+
     def search_repo(self, pkg_name: str) -> Repository:
         """
         Search for a repository by name using the GitHub search API
@@ -535,11 +512,7 @@ class GitHubRepoCollector:
         repo_name: str,
         pkt_type: str = "debian",
         pkt_name: str = "",
-        max_contributors: Optional[int] = None,
-        max_issues: Optional[int] = None,
-        max_prs: Optional[int] = None,
-        max_events: Optional[int] = None,
-        max_commits: Optional[int] = None,
+        time_window: Optional[timedelta] = None,
     ) -> RepoInfo:
         """
         Collect complete repository information and return as RepoInfo model
@@ -547,10 +520,7 @@ class GitHubRepoCollector:
         Args:
             repo_name: Repository name in format 'owner/repo'
             pkt_name: Package name (optional, defaults to repo name)
-            max_contributors: Maximum number of contributors to fetch. If None, fetch all contributors.
-            max_issues: Maximum number of issues to fetch. If None, fetch all issues.
-            max_prs: Maximum number of pull requests to fetch. If None, fetch all pull requests.
-            max_events: Maximum number of events to fetch. If None, fetch all events.
+            time_window: Time window for filtering issues, PRs, and events.
 
         Returns:
             RepoInfo: Complete repository information
@@ -558,24 +528,27 @@ class GitHubRepoCollector:
         logger.info(f"Starting collection for repository: {repo_name}")
 
         try:
+            if time_window:
+                since_timestamp = datetime.now(tz=timezone.utc) - time_window
+            else:
+                since_timestamp = None
             # Get repository object
             repo = await self._run_in_executor(self._get_repository, repo_name)
 
             # Clone repository if requested
             local_repo_dir = await self._clone_repository(repo_name, repo.clone_url)
-
             # Gather all required information concurrently
-            contributors_task = asyncio.create_task(
-                self._get_contributors(repo, max_contributors)
+            basic_info_task = asyncio.create_task(
+                self._get_basic_info(repo)
             )
             issues_task = asyncio.create_task(
-                self._get_issues(repo, max_issues))
+                self._get_issues(repo, since_timestamp))
             prs_task = asyncio.create_task(
-                self._get_pull_requests(repo, max_prs))
+                self._get_pull_requests(repo, since_timestamp))
             events_task = asyncio.create_task(
-                self._get_events(repo, max_events))
+                self._get_events(repo, since_timestamp))
             commits_task = asyncio.create_task(
-                self._get_commits(repo, max_commits))
+                self._get_commits(repo, since_timestamp))
             # Use local binary file detection if repository was cloned, otherwise use API
             data_dir = get_data_dir()
             local_repo_path = data_dir / local_repo_dir
@@ -588,7 +561,7 @@ class GitHubRepoCollector:
                 self._get_check_runs(repo))
             # Wait for all tasks to complete
             (
-                contributors,
+                basic_info,
                 issues,
                 pull_requests,
                 events,
@@ -597,7 +570,7 @@ class GitHubRepoCollector:
                 workflows,
                 check_runs
             ) = await asyncio.gather(
-                contributors_task, issues_task, prs_task, events_task, binary_files_task, commits_task, workflows_task, check_runs_task
+                basic_info_task, issues_task, prs_task, events_task, binary_files_task, commits_task, workflows_task, check_runs_task
             )
 
             # Create RepoInfo model
@@ -606,8 +579,8 @@ class GitHubRepoCollector:
                 pkt_name=pkt_name or repo_name.split("/")[-1],
                 repo_id=repo_name.replace("/", "-"),
                 url=repo.html_url,
+                basic_info=basic_info,
                 commit_list=commits,
-                contributor_list=contributors,
                 pr_list=pull_requests,
                 issue_list=issues,
                 binary_file_list=binary_files,
@@ -618,7 +591,6 @@ class GitHubRepoCollector:
             )
 
             logger.info(f"Successfully collected repo info for {repo_name}")
-            logger.info(f"  - Contributors: {len(contributors)}")
             logger.info(f"  - Issues: {len(issues)}")
             logger.info(f"  - Pull Requests: {len(pull_requests)}")
             logger.info(f"  - Commits: {len(commits)}")

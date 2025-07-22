@@ -9,9 +9,8 @@ import logging
 import os
 
 from hsbriskevaluator.utils.file import get_data_dir
-
-# Add the src directory to the path
 from hsbriskevaluator.collector import collect_all
+from datetime import timedelta
 
 async def test_collector():
     """Test the GitHub collector"""
@@ -23,21 +22,16 @@ async def test_collector():
             pkt_type='debian',
             pkt_name='xz-utils',
             repo_name='tukaani-project/xz', 
-            max_issues=3,
-            max_prs=3,
-            max_contributors=3,
+            time_window=timedelta(days=365),
         )
         
         print(f"✅ Successfully collected info for {repo_info.repo_id}")
         print(f"   - URL: {repo_info.url}")
-        print(f"   - Contributors: {len(repo_info.contributor_list)}")
         print(f"   - Issues: {len(repo_info.issue_list)}")
         print(f"   - Pull Requests: {len(repo_info.pr_list)}")
         print(f"   - Binary files: {len(repo_info.binary_file_list)}")
         
         # Print some sample data
-        if repo_info.contributor_list:
-            print(f"   - First contributor: {repo_info.contributor_list[0].username}")
         
         if repo_info.pr_list:
             pr = repo_info.pr_list[0]

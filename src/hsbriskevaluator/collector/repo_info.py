@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from github.Event import Event
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
@@ -46,34 +46,32 @@ class UserRole(BaseModel):
     timestamp: str = Field(description="timestamp when the role was assigned")
 
 
+class User(BaseModel):
+    username: str = Field(description="username of the user")
+    email: str = Field(description="email of the user")
+    type: str = Field(description="type of the user, such as User or Bot")
+    model_config = ConfigDict(frozen=True)
+
+
 class Commit(BaseModel):
     hash: str = Field(description="SHA of the commit")
-    committer: str = Field(
-        description="username of the user who made the commit")
+    author: User = Field(description="the user who made the commit")
     message: str = Field(description="commit message")
     timestamp: str = Field(description="timestamp when the commit was made")
-
-
-class GithubUser(BaseModel):
-    username: str = Field(description="username of the user")
-    name: str = Field(description="name of the user")
-    email: str = Field(description="email of the user")
-    roles: list[UserRole] = Field(
-        description="list of roles assigned to the user in the repository",
-        default_factory=list,
-    )
+    pull_numbers: list[int] = Field(
+        description="pull request numbers to for the commit")
 
 
 class Comment(BaseModel):
-    username: str = Field(
-        description="username of the user who made the comment")
+    user: User = Field(
+        description="the user who made the comment")
     content: str = Field(description="content of the comment")
     timestamp: str = Field(description="timestamp when the comment was made")
 
 
 class Issue(BaseModel):
     number: int = Field(description="issue number")
-    author: str = Field(description="author of the issue")
+    author: User = Field(description="author of the issue")
     title: str = Field(description="title of the issue")
     body: str = Field(description="body content of the issue")
     comments: list[Comment] = Field(
@@ -87,10 +85,10 @@ class Issue(BaseModel):
 
 
 class PullRequest(Issue):
-    approvers: list[str] = Field(description="approver of the pull request")
-    reviewers: list[str] = Field(
+    approvers: list[User] = Field(description="approver of the pull request")
+    reviewers: list[User] = Field(
         description="list of reviewers for the pull request")
-    merger: str = Field(description="merger of the pull request")
+    merger: User = Field(description="merger of the pull request")
     status: Literal["open", "closed", "merged"] = Field(
         description="status of the pull request"
     )
@@ -98,16 +96,27 @@ class PullRequest(Issue):
         description="merge timestamp if merged", default=None)
     changed_files: list[str] = Field(
         description="list of changed files in the pull request")
-    commits: list[Commit] = Field(
-        description="list of commits in the pull request")
+
 
 class Workflow(BaseModel):
     name: str = Field(description="name of the workflow")
     content: str = Field(description="content of the workflow file")
-    path: str = Field(description="path of the workflow file in the repository")
+    path: str = Field(
+        description="path of the workflow file in the repository")
+
 
 class CheckRun(BaseModel):
     name: str = Field(description="name of the check run")
+
+
+class BasicInfo(BaseModel):
+    description: str = Field(description="description of the repository")
+    stargazers_count: int = Field(
+        description="number of stars in the repository")
+    watchers_count: int = Field(
+        description="number of watchers in the repository")
+    forks_count: int = Field(description="number of forks in the repository")
+
 
 class RepoInfo(BaseModel):
     pkt_type: Literal["debian", "others"] = "debian"  # only support debian
@@ -118,11 +127,11 @@ class RepoInfo(BaseModel):
         description="unique identifier for the repository, usually the orgname-repo_name format"
     )
     url: str = Field(description="URL of the repository")
+    basic_info: BasicInfo = Field(
+        description="Basic information of the repository"
+    )
     commit_list: list[Commit] = Field(
         description="List of commits in the repository")
-    contributor_list: list[GithubUser] = Field(
-        description="List of contributors to the repository"
-    )
     pr_list: list[PullRequest] = Field(
         description="List of pull requests in the repository"
     )
@@ -147,4 +156,3 @@ class RepoInfo(BaseModel):
         description="List of recursive dependencies from package_management system",
         default_factory=list,
     )
-    

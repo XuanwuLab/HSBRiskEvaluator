@@ -91,7 +91,7 @@ class HSBRiskEvaluator(BaseEvaluator):
 
                 dependency_result = dependency_future.result()
                 logger.debug("Dependency evaluation completed")
-                
+
                 CI_result = CI_future.result()
                 logger.debug("CI evaluation completed")
                 return community_result, payload_result, dependency_result, CI_result

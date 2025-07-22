@@ -1,8 +1,10 @@
 #! /usr/bin/env python3
 
+import logging
 from hsbriskevaluator.utils.file import get_data_dir
 from hsbriskevaluator.evaluator import HSBRiskEvaluator
 from hsbriskevaluator.collector.repo_info import RepoInfo
+
 if __name__ == "__main__":
     with open(get_data_dir() / 'test_collector_output.json', 'r') as f:
         repo_info = RepoInfo.model_validate_json(f.read())
