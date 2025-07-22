@@ -121,7 +121,9 @@ def process_packages(packages: List[str]) -> Set[str]:
             logger.info(f"Package: {package}, Git URL: {git_url}")
             save_package_info(package, git_url)
         except Exception as e:
-            logger.error(f"Error processing package '{package}': {e}")
+            git_url = apt_utils.get_package_git(package)
+            logger.warning(f"Failed to get Git URL for package '{package}', using APT URL: {git_url}")
+            save_package_info(package, git_url)
             failed_packages.add(package)
 
     return failed_packages
@@ -131,26 +133,11 @@ def main():
     """
     Main function to process all packages and handle retries for failed cases.
     """
-    try:
         # Load all unique packages
-        packages = load_all_packages()
-        failed_packages = process_packages(packages)
-
-        # Retry failed packages
-        max_retries = 3
-        retry_count = 0
-
-        while failed_packages and retry_count < max_retries:
-            logger.info(f"Retrying failed packages (attempt {retry_count + 1}/{max_retries})...")
-            failed_packages = process_packages(list(failed_packages))
-            retry_count += 1
-
-        if failed_packages:
-            logger.warning(f"Failed to process the following packages after {max_retries} attempts: {failed_packages}")
-        else:
-            logger.info("All packages processed successfully.")
-    except Exception as e:
-        logger.critical(f"Critical error in main function: {e}")
+    packages = load_all_packages()
+    failed_packages = process_packages(packages)
+    with open(get_data_dir() / "failed_packages.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(list(failed_packages), f, allow_unicode=True)
 
 
 if __name__ == "__main__":
