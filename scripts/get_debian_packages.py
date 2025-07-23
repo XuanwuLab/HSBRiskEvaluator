@@ -12,8 +12,7 @@ from typing import Set, Dict, List, Union
 load_dotenv()
 
 logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,9 @@ def process_dependencies(priority: str, package_dict: Dict) -> Dict:
 
     # Collect dependency names
     dependency_names: Set[str] = set()
-    for package_name, package_info in tqdm(package_dict.items(), desc=f"Analyzing {priority} dependencies"):
+    for package_name, package_info in tqdm(
+        package_dict.items(), desc=f"Analyzing {priority} dependencies"
+    ):
         if "depends" in package_info:
             for dep in package_info["depends"]:
                 dependency_names.add(dep["name"])

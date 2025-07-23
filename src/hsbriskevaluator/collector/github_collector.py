@@ -30,7 +30,17 @@ from tenacity import (
 )
 from dotenv import load_dotenv
 
-from .repo_info import RepoInfo, Issue, PullRequest, Comment, GithubEvent, Commit, Workflow, CheckRun, BasicInfo
+from .repo_info import (
+    RepoInfo,
+    Issue,
+    PullRequest,
+    Comment,
+    GithubEvent,
+    Commit,
+    Workflow,
+    CheckRun,
+    BasicInfo,
+)
 from .repo_info import User
 from ..utils.file import get_data_dir, is_binary
 
@@ -65,21 +75,31 @@ class GitHubRepoCollector:
         self.github.close()
 
     def _convert_to_user(self, user: NamedUser) -> User:
-        return User(
-            username=user.login,
-            email=user.email or "",
-            type=user.type
-        )
+        return User(username=user.login, email=user.email or "", type=user.type)
 
     def _convert_to_comment(
         self, comment: IssueComment | PullRequestComment
     ) -> Comment:
         """Convert PyGithub IssueComment to Comment model"""
-        return Comment(user=self._convert_to_user(comment.user), content=comment.body or "", timestamp=comment.created_at.isoformat() if comment.created_at else "")
+        return Comment(
+            user=self._convert_to_user(comment.user),
+            content=comment.body or "",
+            timestamp=comment.created_at.isoformat() if comment.created_at else "",
+        )
 
     def _convert_to_commit(self, commit: GithubCommit) -> Commit:
         """Convert PyGithub Commit to Commit model"""
-        return Commit(hash=commit.sha, author=self._convert_to_user(commit.author or commit.committer or User(username="", email="", type="")), message=commit.commit.message or "", timestamp=commit.commit.committer.date.isoformat() if commit.commit.committer.date else "", pull_numbers=list(map(lambda pr: pr.number, commit.get_pulls())))
+        return Commit(
+            hash=commit.sha,
+            author=self._convert_to_user(commit.author or commit.committer)
+            if commit.author or commit.committer
+            else User(username="", email="", type=""),
+            message=commit.commit.message or "",
+            timestamp=commit.commit.committer.date.isoformat()
+            if commit.commit.committer.date
+            else "",
+            pull_numbers=list(map(lambda pr: pr.number, commit.get_pulls())),
+        )
 
     def _convert_to_github_event(self, event: GithubEventObj) -> Optional[GithubEvent]:
         """
@@ -159,11 +179,11 @@ class GitHubRepoCollector:
         else:
             status = "closed"
 
-        comments = [self._convert_to_comment(comment) for comment in pr.get_comments(
-        )]+[self._convert_to_comment(comment) for comment in pr.get_issue_comments()]
+        comments = [
+            self._convert_to_comment(comment) for comment in pr.get_comments()
+        ] + [self._convert_to_comment(comment) for comment in pr.get_issue_comments()]
 
-        comments = sorted(
-            comments, key=lambda x: datetime.fromisoformat(x.timestamp))
+        comments = sorted(comments, key=lambda x: datetime.fromisoformat(x.timestamp))
         # Handle timestamps safely
         created_at_str = pr.created_at.isoformat() if pr.created_at else ""
         updated_at_str = pr.updated_at.isoformat() if pr.updated_at else ""
@@ -231,12 +251,10 @@ class GitHubRepoCollector:
                 )
 
                 if result.returncode == 0:
-                    logger.info(
-                        f"Successfully cloned {repo_name} to {local_repo_path}")
+                    logger.info(f"Successfully cloned {repo_name} to {local_repo_path}")
                     return repo_dir_name  # Return relative path
                 else:
-                    logger.error(
-                        f"Failed to clone {repo_name}: {result.stderr}")
+                    logger.error(f"Failed to clone {repo_name}: {result.stderr}")
                     return None
 
             except subprocess.TimeoutExpired:
@@ -276,8 +294,7 @@ class GitHubRepoCollector:
                         # This function includes is_dir check and content-based binary detection
                         if is_binary(str(file_path)):
                             # Get relative path from repository root
-                            relative_path = file_path.relative_to(
-                                local_repo_path)
+                            relative_path = file_path.relative_to(local_repo_path)
                             binary_files.append(str(relative_path))
 
                 logger.info(
@@ -308,7 +325,7 @@ class GitHubRepoCollector:
 
         Args:
             repo: Repository object
-            since_timestamp: 
+            since_timestamp:
         """
 
         def _fetch_issues():
@@ -321,14 +338,16 @@ class GitHubRepoCollector:
                 # Iterate through all issues across all pages
                 for issue in issues_paginated:
                     # Check limit before processing to avoid unnecessary API calls
-                    if since_timestamp is not None and issue.created_at < since_timestamp:
+                    if (
+                        since_timestamp is not None
+                        and issue.created_at < since_timestamp
+                    ):
                         break
                     # Skip pull requests (they appear in issues endpoint)
                     if issue.pull_request is None:
                         issues.append(self._convert_to_issue(issue))
 
-                logger.info(
-                    f"Retrieved {len(issues)} issues for {repo.full_name}")
+                logger.info(f"Retrieved {len(issues)} issues for {repo.full_name}")
                 return issues
             except GithubException as e:
                 logger.error(f"Error fetching issues: {e}")
@@ -396,7 +415,10 @@ class GitHubRepoCollector:
                 # Iterate through all events across all pages
                 for event in events_paginated:
                     # Check limit before processing to avoid unnecessary API calls
-                    if since_timestamp is not None and event.created_at < since_timestamp:
+                    if (
+                        since_timestamp is not None
+                        and event.created_at < since_timestamp
+                    ):
                         break
 
                     # Convert event and filter out unwanted types
@@ -404,8 +426,7 @@ class GitHubRepoCollector:
                     if converted_event:
                         events.append(converted_event)
 
-                logger.info(
-                    f"Retrieved {len(events)} events for {repo.full_name}")
+                logger.info(f"Retrieved {len(events)} events for {repo.full_name}")
                 return events
             except GithubException as e:
                 logger.error(f"Error fetching events: {e}")
@@ -433,14 +454,15 @@ class GitHubRepoCollector:
                 # Iterate through all commits across all pages
                 for commit in commits_paginated:
                     # Check limit before processing to avoid unnecessary API calls
-                    if since_timestamp is not None and commit.commit.committer.date < since_timestamp:
+                    if (
+                        since_timestamp is not None
+                        and commit.commit.committer.date < since_timestamp
+                    ):
                         break
 
                     commits.append(self._convert_to_commit(commit))
 
-                logger.info(
-                    f"Retrieved {len(commits)} commits for {repo.full_name}"
-                )
+                logger.info(f"Retrieved {len(commits)} commits for {repo.full_name}")
                 return commits
             except GithubException as e:
                 logger.error(f"Error fetching commits: {e}")
@@ -448,19 +470,24 @@ class GitHubRepoCollector:
 
         return await self._run_in_executor(_fetch_commits)
 
-    async def _get_workflows(self, repo: Repository, local_repo_path: Path) -> List[Workflow]:
+    async def _get_workflows(
+        self, repo: Repository, local_repo_path: Path
+    ) -> List[Workflow]:
         def _fetch_workflows():
             workflows = []
             try:
                 for workflow in repo.get_workflows():
                     file_path = local_repo_path / workflow.path
                     try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
+                        with open(file_path, "r", encoding="utf-8") as f:
                             content = f.read()
                     except FileNotFoundError:
                         content = "Not from a file in repo"
                     workflows.append(
-                        Workflow(name=workflow.name, content=content, path=workflow.path))
+                        Workflow(
+                            name=workflow.name, content=content, path=workflow.path
+                        )
+                    )
                 logger.info(
                     f"Retrieved {len(workflows)} workflows for {repo.full_name}"
                 )
@@ -468,17 +495,20 @@ class GitHubRepoCollector:
             except GithubException as e:
                 logger.error(f"Error fetching workflows: {e}")
                 return []
+
         return await self._run_in_executor(_fetch_workflows)
 
     async def _get_check_runs(self, repo: Repository) -> List[CheckRun]:
         def _fetch_check_runs():
             check_runs = set()
             try:
+
                 def add_check_run(commit: GithubCommit):
                     for check_run in commit.get_check_runs():
                         check_runs.add(check_run.name)
                     for status in commit.get_statuses():
                         check_runs.add(status.context)
+
                 for commit in repo.get_commits()[:3]:
                     add_check_run(commit)
                 for pull in repo.get_pulls(state="all")[:3]:
@@ -491,6 +521,7 @@ class GitHubRepoCollector:
             except GithubException as e:
                 logger.error(f"Error fetching checkruns: {e}")
                 return []
+
         return await self._run_in_executor(_fetch_check_runs)
 
     def search_repo(self, pkg_name: str) -> Repository:
@@ -538,17 +569,15 @@ class GitHubRepoCollector:
             # Clone repository if requested
             local_repo_dir = await self._clone_repository(repo_name, repo.clone_url)
             # Gather all required information concurrently
-            basic_info_task = asyncio.create_task(
-                self._get_basic_info(repo)
-            )
-            issues_task = asyncio.create_task(
-                self._get_issues(repo, since_timestamp))
+            basic_info_task = asyncio.create_task(self._get_basic_info(repo))
+            issues_task = asyncio.create_task(self._get_issues(repo, since_timestamp))
             prs_task = asyncio.create_task(
-                self._get_pull_requests(repo, since_timestamp))
-            events_task = asyncio.create_task(
-                self._get_events(repo, since_timestamp))
-            commits_task = asyncio.create_task(
-                self._get_commits(repo, since_timestamp))
+                self._get_pull_requests(repo, since_timestamp)
+            )
+            # events are not used in the current implementation, but can be uncommented if needed
+            # events_task = asyncio.create_task(
+            #    self._get_events(repo, since_timestamp))
+            commits_task = asyncio.create_task(self._get_commits(repo, since_timestamp))
             # Use local binary file detection if repository was cloned, otherwise use API
             data_dir = get_data_dir()
             local_repo_path = data_dir / local_repo_dir
@@ -556,22 +585,28 @@ class GitHubRepoCollector:
                 self._find_binary_files_local(local_repo_path)
             )
             workflows_task = asyncio.create_task(
-                self._get_workflows(repo, local_repo_path))
-            check_runs_task = asyncio.create_task(
-                self._get_check_runs(repo))
+                self._get_workflows(repo, local_repo_path)
+            )
+            check_runs_task = asyncio.create_task(self._get_check_runs(repo))
             # Wait for all tasks to complete
             (
                 basic_info,
                 issues,
                 pull_requests,
-                events,
                 binary_files,
                 commits,
                 workflows,
-                check_runs
+                check_runs,
             ) = await asyncio.gather(
-                basic_info_task, issues_task, prs_task, events_task, binary_files_task, commits_task, workflows_task, check_runs_task
+                basic_info_task,
+                issues_task,
+                prs_task,
+                binary_files_task,
+                commits_task,
+                workflows_task,
+                check_runs_task,
             )
+            events = []  # events_task.result()  # Uncomment if events are needed
 
             # Create RepoInfo model
             repo_info = RepoInfo(
@@ -587,7 +622,7 @@ class GitHubRepoCollector:
                 local_repo_dir=local_repo_dir,
                 event_list=events,
                 workflow_list=workflows,
-                check_run_list=check_runs
+                check_run_list=check_runs,
             )
 
             logger.info(f"Successfully collected repo info for {repo_name}")
@@ -602,8 +637,7 @@ class GitHubRepoCollector:
             return repo_info
 
         except GithubException as e:
-            logger.error(
-                f"GitHub API error collecting repo info for {repo_name}: {e}")
+            logger.error(f"GitHub API error collecting repo info for {repo_name}: {e}")
             raise
         except Exception as e:
             logger.error(f"Error collecting repo info for {repo_name}: {e}")
@@ -630,8 +664,7 @@ class GitHubRepoCollector:
                 try:
                     return await self.collect_repo_info(repo_name, **kwargs)
                 except Exception as e:
-                    logger.error(
-                        f"Failed to collect info for {repo_name}: {e}")
+                    logger.error(f"Failed to collect info for {repo_name}: {e}")
                     return None
 
         logger.info(f"Starting collection for {len(repo_names)} repositories")
@@ -640,8 +673,7 @@ class GitHubRepoCollector:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Filter out None results and exceptions
-        repo_infos = [
-            result for result in results if isinstance(result, RepoInfo)]
+        repo_infos = [result for result in results if isinstance(result, RepoInfo)]
 
         logger.info(
             f"Successfully collected info for {len(repo_infos)}/{len(repo_names)} repositories"

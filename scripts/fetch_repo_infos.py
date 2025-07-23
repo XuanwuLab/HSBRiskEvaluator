@@ -1,8 +1,10 @@
 import os
+import time
 from datetime import timedelta
 import asyncio
 import yaml
 from pathlib import Path
+from typing import Dict
 import logging
 
 from hsbriskevaluator.utils.file import get_data_dir
@@ -10,10 +12,34 @@ from hsbriskevaluator.collector import collect_all
 
 # Configure logging
 logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Utility functions
+def load_yaml(file_path: Path) -> Dict:
+    """Load a YAML file into a Python dictionary."""
+    if not file_path.exists():
+        logger.error(f"File {file_path} does not exist.")
+        exit(1)
+    try:
+        with open(file_path, "r") as f:
+            return yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        logger.error(f"Error parsing YAML file {file_path}: {e}")
+        exit(1)
+
+
+def save_yaml(data: Dict, file_path: Path):
+    """Save a Python dictionary to a YAML file."""
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+        with open(file_path, "w") as f:
+            yaml.dump(data, f, allow_unicode=True)
+        logger.info(f"Successfully saved data to {file_path}")
+    except Exception as e:
+        logger.error(f"Error saving YAML file {file_path}: {e}")
+
 
 def get_repo_name(git_url: str) -> str:
     """
@@ -33,86 +59,88 @@ def get_repo_name(git_url: str) -> str:
         raise
 
 
-async def collect_one(package_file: Path, semaphore: asyncio.Semaphore):
+async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore):
     """
     Collect repository information for a single package file and update it if needed.
 
     Args:
-        package_file (Path): Path to the YAML file representing the package.
+        package_info (Dict): Information about the package.
         semaphore (asyncio.Semaphore): A semaphore to limit concurrency.
     """
     async with semaphore:  # Ensure concurrency limit
         try:
-            logger.info(f"Processing package file: {package_file}")
-
-            # Read the YAML file
-            with package_file.open("r", encoding="utf-8") as f:
-                package_data = yaml.safe_load(f)
-
-            # Validate the loaded YAML content
-            if not isinstance(package_data, dict):
-                raise ValueError(f"Invalid YAML format in file: {package_file}")
-
-            # Ensure `git_url` exists in the YAML content
-            git_url = package_data.get("git_url")
+            # Validate package information
+            package_name = package_info.get("parent_package") or package_info.get("package")
+            if not package_name:
+                raise ValueError("Missing 'package' or 'parent_package' in package info.")
+            
+            git_url = package_info.get("upstream_git_url")
             if not git_url:
-                raise ValueError(f"Missing 'git_url' in file: {package_file}")
+                raise ValueError(f"Missing 'upstream_git_url' for package: {package_name}")
 
-            # If `repo_info` is missing and `git_url` meets the conditions, collect repository info
-            if not package_data.get("repo_info") and git_url.startswith("https://github"):
-                logger.info(f"Collecting repository info for package: {package_data['package']}")
-                
-                repo_info = await collect_all(
-                    pkt_type="debian",
-                    pkt_name=package_data["package"],
-                    repo_name=get_repo_name(git_url),
-                    time_window=timedelta(days=365),
+            # Skip non-GitHub URLs
+            if not git_url.startswith("https://github"):
+                logger.info(
+                    f"Skipping package {package_name} due to non-GitHub git URL: {git_url}"
                 )
-                package_data["repo_info"] = repo_info.model_dump()
+                return
 
-            # Write the updated content back to the YAML file
-            with package_file.open("w", encoding="utf-8") as f:
-                yaml.dump(package_data, f, allow_unicode=True)
-                logger.info(f"Updated repository info saved for package: {package_data['package']}")
+            # Define output path for repository info
+            repo_info_path = get_data_dir() / "repo_info" / f"{package_name}.yaml"
+            if repo_info_path.exists():
+                logger.info(f"Repository info for {package_name} already exists, skipping.")
+                return
+
+            if not repo_info_path.parent.exists():
+                repo_info_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Collect repository information
+            repo_info = await collect_all(
+                pkt_type="debian",
+                pkt_name=package_info["package"],
+                repo_name=get_repo_name(git_url),
+                time_window=timedelta(days=3650),
+            )
+
+            # Save the collected repository information
+            save_yaml(repo_info.model_dump(), repo_info_path)
 
         except Exception as e:
-            # Log errors for individual files
-            logger.error(f"Error processing file {package_file}: {e}")
+            # Log errors for individual packages
+            logger.error(f"Error processing package {package_name}: {e}")
 
 
-async def collect_repo_info(max_concurrency: int = 5):
+async def collect_repo_info(package_file: Path, max_concurrency: int = 5):
     """
     Collect repository information for multiple packages and update YAML files.
 
     Args:
+        package_file (Path): Path to the YAML file containing package information.
         max_concurrency (int): Maximum number of concurrent tasks allowed.
     """
-    try:
-        # Get the directory where package data is stored
-        package_dir = get_data_dir() / "package"
-        if not package_dir.exists() or not package_dir.is_dir():
-            raise FileNotFoundError(f"Package directory not found: {package_dir}")
+    package_dict_by_name = load_yaml(package_file)
+    semaphore = asyncio.Semaphore(max_concurrency)
 
-        # Create a semaphore to limit the number of concurrent tasks
-        semaphore = asyncio.Semaphore(max_concurrency)
+    # Create tasks for each package
+    tasks = [
+        collect_one(package_info, semaphore)
+        for package_name, package_info in package_dict_by_name.items()
+    ]
 
-        # Collect repository information for each YAML file
-        tasks = []
-        for package_file in package_dir.glob("*.yaml"):
-            tasks.append(collect_one(package_file, semaphore))
-
-        # Run all tasks concurrently, respecting the semaphore limits
-        await asyncio.gather(*tasks, return_exceptions=True)  # Handle all exceptions gracefully
-
-    except Exception as e:
-        # Catch and log errors in the main process
-        logger.critical(f"Error occurred during repository information collection: {e}")
+    # Run tasks concurrently while logging exceptions
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for result in results:
+        if isinstance(result, Exception):
+            logger.error(f"Task failed with exception: {result}")
 
 
-# Run the asynchronous task
+# Main entry point
 if __name__ == "__main__":
-    # Set the maximum concurrency level to 5 (or adjust as needed)
-    try:
-        asyncio.run(collect_repo_info(max_concurrency=5))
-    except Exception as e:
-        logger.critical(f"Unexpected error in main execution: {e}")
+    package_file = get_data_dir() / "packages.yaml"
+    dependency_file = get_data_dir() / "dependencies.yaml"
+
+    for file in [package_file, dependency_file]:
+        if not file.exists():
+            logger.error(f"File {file} does not exist.")
+        else:
+            asyncio.run(collect_repo_info(file))

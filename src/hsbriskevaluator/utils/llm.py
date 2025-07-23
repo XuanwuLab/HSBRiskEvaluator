@@ -7,6 +7,11 @@ from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain_core.language_models import BaseChatModel
 from pathlib import Path
+from openai import OpenAI, AsyncOpenAI
+import os
+import instructor
+from pydantic import BaseModel
+
 
 
 def get_model(model_name) -> BaseChatModel:
@@ -14,4 +19,12 @@ def get_model(model_name) -> BaseChatModel:
         base_url="https://openrouter.ai/api/v1",
         model=model_name,
         # default_headers={"X-Title": "DataSpeak"},
+    )
+def get_instructor_client():
+    return instructor.from_openai(
+        OpenAI(base_url="https://openrouter.ai/api/v1"),
+    )
+def get_async_instructor_client():
+    return instructor.from_openai(
+        AsyncOpenAI(base_url="https://openrouter.ai/api/v1"),
     )

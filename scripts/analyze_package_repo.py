@@ -15,8 +15,7 @@ load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,12 @@ def load_all_packages() -> List[str]:
     Returns:
         List[str]: A list of unique package names.
     """
-    evaluator_path = Path(__file__).resolve().parent.parent / "src" / "hsbriskevaluator" / "evaluator"
+    evaluator_path = (
+        Path(__file__).resolve().parent.parent
+        / "src"
+        / "hsbriskevaluator"
+        / "evaluator"
+    )
     os_default_yaml = evaluator_path / "os_default.yaml"
     mainstream_os_yaml = evaluator_path / "mainstream_os.yaml"
 
@@ -80,7 +84,7 @@ def load_all_packages() -> List[str]:
     return unique_packages
 
 
-def save_package_info(package: str, git_url: str, failed_message:str) -> None:
+def save_package_info(package: str, git_url: str, failed_message: str) -> None:
     """
     Save package information as a YAML file in the 'package' directory.
 
@@ -96,7 +100,7 @@ def save_package_info(package: str, git_url: str, failed_message:str) -> None:
         "package": package,
         "git_url": git_url,
         "failed_message": failed_message,
-        "repo_info": {}
+        "repo_info": {},
     }
     with open(package_file, "w", encoding="utf-8") as f:
         yaml.dump(package_data, f, allow_unicode=True)
@@ -122,7 +126,6 @@ def process_packages(packages: List[str]) -> Set[str]:
             logger.info(f"Package: {package}, Git URL: {git_url}")
             save_package_info(package, git_url, failed_message="")
         except Exception as e:
-            logger.warning(f"Failed to get Git URL for package '{package}', using APT URL: {git_url}")
             save_package_info(package, "", failed_message=str(e))
             failed_packages.add(package)
 
@@ -133,7 +136,7 @@ def main():
     """
     Main function to process all packages and handle retries for failed cases.
     """
-        # Load all unique packages
+    # Load all unique packages
     packages = load_all_packages()
     failed_packages = process_packages(packages)
     with open(get_data_dir() / "failed_packages.yaml", "w", encoding="utf-8") as f:
