@@ -85,9 +85,6 @@ class CommunityEvaluator(BaseEvaluator):
     def _list_community_users(self) -> list[User]:
         unique_users = set()
         # map(lambda commit: unique_users.add(commit.author), self.repo_info.commit_list)
-        for commit in self.repo_info.commit_list:
-            unique_users.add(commit.author)
-
         def add_issue_users(issue: Issue):
             unique_users.add(issue.author)
             for comment in issue.comments:

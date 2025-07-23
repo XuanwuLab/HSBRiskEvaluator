@@ -14,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from github import Github, GithubException, RateLimitExceededException
 from github.Repository import Repository
+from git import Repo, GitCommandError
+
 from github.NamedUser import NamedUser
 from github.Issue import Issue as GithubIssue
 from github.PullRequest import PullRequest as GithubPR
@@ -434,6 +436,80 @@ class GitHubRepoCollector:
 
         return await self._run_in_executor(_fetch_events)
 
+    async def _get_local_commits(
+        self,
+        local_repo_path: Path,
+        since_timestamp: Optional[datetime] = None,
+    ) -> List[Commit]:
+        """
+        Get commits from a local Git repository and map them to the Commit class.
+
+        Args:
+            local_repo_path: Path to the local Git repository.
+            since_timestamp: Fetch commits only after this timestamp.
+
+        Returns:
+            List of Commit objects.
+        """
+
+        def _fetch_local_commits():
+            """Fetch commits from the local Git repository."""
+            commits = []
+            try:
+                # Open the local repository
+                repo = Repo(local_repo_path)
+
+                # Check if the repository is valid
+                if repo.bare:
+                    logger.error(
+                        f"The repository at {local_repo_path} is not a valid Git repository."
+                    )
+                    return []
+
+                # Iterate through commits
+                for commit in repo.iter_commits():
+                    # Filter commits by timestamp if specified
+                    commit_date = datetime.fromtimestamp(commit.committed_date)
+                    if since_timestamp and commit_date < since_timestamp:
+                        break
+
+                    # Extract pull request numbers from the commit message
+                    pull_numbers = []
+
+                    # Append commit information mapped to the Commit class
+                    username = "" if not commit.author else commit.author.name or ""
+                    email = "" if not commit.author else commit.author.name or ""
+                    if type(commit.message) == str:
+                        message = commit.message
+                    elif type(commit.message) == bytes:
+                        message = commit.message.decode()
+                    else:
+                        message = ""
+
+                    commits.append(
+                        Commit(
+                            hash=commit.hexsha,
+                            author=User(username=username, email=email, type=""),
+                            message=message,
+                            timestamp=commit_date.isoformat(),
+                            pull_numbers=pull_numbers,
+                        )
+                    )
+
+                logger.info(
+                    f"Retrieved {len(commits)} commits from local repo: {local_repo_path}"
+                )
+                return commits
+            except GitCommandError as e:
+                logger.error(f"Error fetching commits from local repo: {e}")
+                return []
+            except Exception as e:
+                logger.error(f"Unexpected error: {e}")
+                return []
+
+        # Run the local commit fetching in an executor (for async compatibility)
+        return await self._run_in_executor(_fetch_local_commits)
+
     async def _get_commits(
         self, repo: Repository, since_timestamp: Optional[datetime] = None
     ) -> List[Commit]:
@@ -565,9 +641,11 @@ class GitHubRepoCollector:
                 since_timestamp = None
             # Get repository object
             repo = await self._run_in_executor(self._get_repository, repo_name)
+            data_dir = get_data_dir()
+            local_repo_dir = await self._clone_repository(repo_name, repo.clone_url)
+            local_repo_path = data_dir / local_repo_dir
 
             # Clone repository if requested
-            local_repo_dir = await self._clone_repository(repo_name, repo.clone_url)
             # Gather all required information concurrently
             basic_info_task = asyncio.create_task(self._get_basic_info(repo))
             issues_task = asyncio.create_task(self._get_issues(repo, since_timestamp))
@@ -577,10 +655,10 @@ class GitHubRepoCollector:
             # events are not used in the current implementation, but can be uncommented if needed
             # events_task = asyncio.create_task(
             #    self._get_events(repo, since_timestamp))
-            commits_task = asyncio.create_task(self._get_commits(repo, since_timestamp))
+            # commits are not used since it will make repo_info too large
+            # commits_task = asyncio.create_task(
+            #    self._get_local_commits(local_repo_path, since_timestamp))
             # Use local binary file detection if repository was cloned, otherwise use API
-            data_dir = get_data_dir()
-            local_repo_path = data_dir / local_repo_dir
             binary_files_task = asyncio.create_task(
                 self._find_binary_files_local(local_repo_path)
             )
@@ -594,7 +672,6 @@ class GitHubRepoCollector:
                 issues,
                 pull_requests,
                 binary_files,
-                commits,
                 workflows,
                 check_runs,
             ) = await asyncio.gather(
@@ -602,11 +679,11 @@ class GitHubRepoCollector:
                 issues_task,
                 prs_task,
                 binary_files_task,
-                commits_task,
                 workflows_task,
                 check_runs_task,
             )
             events = []  # events_task.result()  # Uncomment if events are needed
+            commits = []
 
             # Create RepoInfo model
             repo_info = RepoInfo(

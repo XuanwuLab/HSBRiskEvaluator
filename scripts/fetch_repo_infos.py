@@ -70,13 +70,19 @@ async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore):
     async with semaphore:  # Ensure concurrency limit
         try:
             # Validate package information
-            package_name = package_info.get("parent_package") or package_info.get("package")
+            package_name = package_info.get("parent_package") or package_info.get(
+                "package"
+            )
             if not package_name:
-                raise ValueError("Missing 'package' or 'parent_package' in package info.")
-            
+                raise ValueError(
+                    "Missing 'package' or 'parent_package' in package info."
+                )
+
             git_url = package_info.get("upstream_git_url")
             if not git_url:
-                raise ValueError(f"Missing 'upstream_git_url' for package: {package_name}")
+                raise ValueError(
+                    f"Missing 'upstream_git_url' for package: {package_name}"
+                )
 
             # Skip non-GitHub URLs
             if not git_url.startswith("https://github"):
@@ -88,7 +94,9 @@ async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore):
             # Define output path for repository info
             repo_info_path = get_data_dir() / "repo_info" / f"{package_name}.yaml"
             if repo_info_path.exists():
-                logger.info(f"Repository info for {package_name} already exists, skipping.")
+                logger.info(
+                    f"Repository info for {package_name} already exists, skipping."
+                )
                 return
 
             if not repo_info_path.parent.exists():
@@ -143,4 +151,4 @@ if __name__ == "__main__":
         if not file.exists():
             logger.error(f"File {file} does not exist.")
         else:
-            asyncio.run(collect_repo_info(file))
+            asyncio.run(collect_repo_info(file, 1))
