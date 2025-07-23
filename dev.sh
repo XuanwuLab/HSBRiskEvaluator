@@ -1,0 +1,1 @@
+docker build -t hsb .&&docker run -v $(pwd):/code -it hsb /bin/bash
