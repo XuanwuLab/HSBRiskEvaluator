@@ -8,21 +8,14 @@ from pydantic import BaseModel, Field
 
 class CommunityEvalResult(BaseModel):
     """Community Quality evaluation results"""
-    stargazers_count: int = Field(
-        description="Number of stargazers of the repository"
-    )
-    watchers_count: int = Field(
-        description="Number of watchers of the repository"
-    )
-    forks_count: int = Field(
-        description="Number of forks of the repository"
-    )
+
+    stargazers_count: int = Field(description="Number of stargazers of the repository")
+    watchers_count: int = Field(description="Number of watchers of the repository")
+    forks_count: int = Field(description="Number of forks of the repository")
     community_users_count: int = Field(
         description="Number of users actively participating in the community"
     )
-    direct_commits: int = Field(
-        description="Number of direct commits to main branch"
-    )
+    direct_commits: int = Field(description="Number of direct commits to main branch")
     direct_commit_users_count: int = Field(
         description="Number of users that submitted some code to main branch"
     )
@@ -80,7 +73,7 @@ class PayloadHiddenEvalResult(BaseModel):
     )
     details: list[PayloadHiddenDetail] = Field(
         default_factory=list,
-        description="Detailed analysis of binary files and their classification"
+        description="Detailed analysis of binary files and their classification",
     )
 
 
@@ -113,12 +106,8 @@ class DangerousTriggerAnalysis(BaseModel):
     is_dangerous: bool = Field(
         description="Whether the trigger is considered dangerous"
     )
-    danger_level: float = Field(
-        description="Score for dangerous trigger in workflow"
-    )
-    reason: str = Field(
-        description="Reason for considering the trigger dangerous"
-    )
+    danger_level: float = Field(description="Score for dangerous trigger in workflow")
+    reason: str = Field(description="Reason for considering the trigger dangerous")
 
 
 class WorkflowAnalysis(BaseModel):

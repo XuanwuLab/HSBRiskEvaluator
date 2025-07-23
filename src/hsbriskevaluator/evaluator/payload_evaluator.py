@@ -1,12 +1,19 @@
 import logging
-import os
+import asyncio
 from typing import List, Set
 from pathlib import Path
-from hsbriskevaluator.evaluator.base import BaseEvaluator, PayloadHiddenEvalResult, PayloadHiddenDetail
+from hsbriskevaluator.evaluator.base import (
+    BaseEvaluator,
+    PayloadHiddenEvalResult,
+    PayloadHiddenDetail,
+)
 from hsbriskevaluator.collector.repo_info import RepoInfo
-from hsbriskevaluator.utils.llm import get_model
+from hsbriskevaluator.utils.llm import get_async_instructor_client, call_llm_with_client
 from hsbriskevaluator.utils.file import get_data_dir, is_binary
-from langchain_core.prompts import ChatPromptTemplate
+from hsbriskevaluator.utils.prompt import (
+    PAYLOAD_FILE_ANALYSIS_PROMPT,
+    PAYLOAD_FILE_ANALYSIS_MODEL_ID,
+)
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -15,15 +22,19 @@ logger = logging.getLogger(__name__)
 class PayloadEvaluator(BaseEvaluator):
     """Evaluator for Difficulty of Hiding Malicious Code metrics"""
 
-    # Common binary file extensions that could be used to hide payloads
-
     def __init__(
-        self, repo_info: RepoInfo, llm_model_name: str = "anthropic/claude-3.5-sonnet"
+        self,
+        repo_info: RepoInfo,
+        llm_model_name: str = PAYLOAD_FILE_ANALYSIS_MODEL_ID,
+        max_concurrency: int = 5,
     ):
         super().__init__(repo_info)
-        self.llm = get_model(llm_model_name)
+        self.llm_model_name = llm_model_name
+        self.max_concurrency = max_concurrency
+        self._semaphore = asyncio.Semaphore(max_concurrency)
+        self.client = get_async_instructor_client()
 
-    def evaluate(self) -> PayloadHiddenEvalResult:
+    async def evaluate(self) -> PayloadHiddenEvalResult:
         """Evaluate payload hiding difficulty metrics"""
         logger.info(
             f"Starting payload evaluation for repository: {self.repo_info.repo_id}"
@@ -31,44 +42,51 @@ class PayloadEvaluator(BaseEvaluator):
 
         try:
             # Analyze binary files in the repository (already verified by collector)
-            allows_binary_test_files, test_files_details = self._check_binary_test_files()
-            allows_binary_document_files, document_files_details = self._check_binary_document_files()
+            (
+                allows_binary_test_files,
+                test_files_details,
+            ) = await self._check_binary_test_files()
+            (
+                allows_binary_document_files,
+                document_files_details,
+            ) = await self._check_binary_document_files()
 
             # Count and analyze binary files
             binary_files_count = len(self.repo_info.binary_file_list)
 
-            # Calculate overall risk score
+            # Combine details from both checks, removing duplicates
+            all_details = {}
+            for detail in test_files_details + document_files_details:
+                all_details[detail.file_path] = detail
 
             result = PayloadHiddenEvalResult(
                 allows_binary_test_files=allows_binary_test_files,
                 allows_binary_document_files=allows_binary_document_files,
                 binary_files_count=binary_files_count,
-                details=test_files_details + document_files_details
+                details=list(all_details.values()),
             )
 
-            logger.info(
-                f"Payload evaluation completed for {self.repo_info.repo_id}")
+            logger.info(f"Payload evaluation completed for {self.repo_info.repo_id}")
             return result
 
         except Exception as e:
             logger.error(f"Error during payload evaluation: {str(e)}")
             raise
 
-    def _check_binary_test_files(self) -> tuple[bool, List[PayloadHiddenDetail]]:
+    async def _check_binary_test_files(self) -> tuple[bool, List[PayloadHiddenDetail]]:
         """Check if repository allows binary files in test directories using LLM analysis"""
         test_binary_files = []
 
-        details = []
-        for file_path in self.repo_info.binary_file_list:
-            detail = self._analyze_file_with_llm(file_path)
+        # Analyze all binary files concurrently
+        details = await self._analyze_files_with_llm(self.repo_info.binary_file_list)
 
+        for detail in details:
             # Consider files that LLM identifies as test files with reasonable confidence
             if detail.is_test_file:
-                test_binary_files.append(file_path)
+                test_binary_files.append(detail.file_path)
                 logger.debug(
-                    f"LLM identified test binary file: {file_path} - {detail.reason}"
+                    f"LLM identified test binary file: {detail.file_path} - {detail.reason}"
                 )
-            details.append(detail)
 
         test_binaries = len(test_binary_files) > 0
 
@@ -79,21 +97,23 @@ class PayloadEvaluator(BaseEvaluator):
 
         return test_binaries, details
 
-    def _check_binary_document_files(self) -> tuple[bool, List[PayloadHiddenDetail]]:
+    async def _check_binary_document_files(
+        self,
+    ) -> tuple[bool, List[PayloadHiddenDetail]]:
         """Check if repository allows binary document/media files using LLM analysis"""
         document_files = []
 
-        details = []
-        for file_path in self.repo_info.binary_file_list:
-            detail = self._analyze_file_with_llm(file_path)
+        # Analyze all binary files concurrently
+        details = await self._analyze_files_with_llm(self.repo_info.binary_file_list)
 
+        for detail in details:
             # Consider files that LLM identifies as documentation or media files with reasonable confidence
             if detail.is_documentation:
-                document_files.append(file_path)
+                document_files.append(detail.file_path)
                 logger.debug(
-                    f"LLM identified document/media binary file: {file_path} - {detail.reason}"
+                    f"LLM identified document/media binary file: {detail.file_path} - {detail.reason}"
                 )
-            details.append(detail)
+
         document_binaries = len(document_files) > 0
 
         if document_binaries:
@@ -109,63 +129,63 @@ class PayloadEvaluator(BaseEvaluator):
         has_triggers = False
         return has_triggers
 
-    def _analyze_file_with_llm(self, file_path: str) -> PayloadHiddenDetail:
-        """Use LLM to analyze file path and categorize the binary file"""
-        prompt = ChatPromptTemplate.from_template(
-            """
-        Analyze this binary file path from a software repository to categorize its purpose and assess risk.
-        
-        File Path: {file_path}
-        
-        Please analyze:
-        1. Is this file likely a test file, test fixture, or test resource?
-        2. Is this file documentation-related (images in docs, example files, etc.)?
-        3. Is this file an image, media file, or similar content file?
-        
-        Consider the context:
-        - Path structure and directory names
-        - File naming conventions
-        - Common patterns in software repositories
-        - Whether the file type makes sense in its location
-        
-        Respond with a JSON object containing:
-        - reason: string (brief explanation of your assessment)
-        - file_type: string (inferred file type/purpose, e.g., "test_resource", "documentation_image", "executable", etc.)
-        - is_test_file: boolean (true if this appears to be a test file or test resource)
-        - is_documentation: boolean (true if this appears to be documentation-related)
-        - file_path: string (the original file path for reference)
+    async def _analyze_files_with_llm(
+        self, file_paths: List[str]
+    ) -> List[PayloadHiddenDetail]:
+        """Analyze multiple files concurrently with rate limiting"""
+        tasks = []
+        for file_path in file_paths:
+            task = self._analyze_file_with_llm(file_path)
+            tasks.append(task)
 
-        Don't include any other text, just the JSON response.
-        """
-        )
+        # Execute all tasks concurrently with rate limiting
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        try:
-            response = self.llm.invoke(prompt.format(file_path=file_path))
-
-            response_content = response.content
-            if isinstance(response_content, str):
-                analysis = PayloadHiddenDetail.model_validate_json(
-                    response_content)
-                return analysis
-            else:
-                logger.warning(
-                    f"Unexpected response type from LLM for file {file_path}"
+        # Handle any exceptions and return valid results
+        valid_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(f"Failed to analyze file {file_paths[i]}: {str(result)}")
+                # Create a fallback result for failed analysis
+                valid_results.append(
+                    PayloadHiddenDetail(
+                        file_path=file_paths[i],
+                        reason=f"Analysis failed: {str(result)}",
+                        file_type="unknown",
+                        is_test_file=False,
+                        is_documentation=False,
+                    )
                 )
+            else:
+                valid_results.append(result)
+
+        return valid_results
+
+    async def _analyze_file_with_llm(self, file_path: str) -> PayloadHiddenDetail:
+        """Use LLM to analyze file path and categorize the binary file"""
+        async with self._semaphore:  # Rate limiting
+            messages = [
+                {
+                    "role": "user",
+                    "content": PAYLOAD_FILE_ANALYSIS_PROMPT.format(file_path=file_path),
+                }
+            ]
+
+            try:
+                analysis = await call_llm_with_client(
+                    client=self.client,
+                    model_id=self.llm_model_name,
+                    messages=messages,
+                    response_model=PayloadHiddenDetail,
+                )
+                return analysis
+
+            except Exception as e:
+                logger.warning(f"LLM analysis failed for file {file_path}: {str(e)}")
                 return PayloadHiddenDetail(
                     file_path=file_path,
-                    reason="Failed to parse LLM response",
+                    reason=f"Analysis failed: {str(e)}",
                     file_type="unknown",
                     is_test_file=False,
                     is_documentation=False,
                 )
-
-        except Exception as e:
-            logger.warning(
-                f"LLM analysis failed for file {file_path}: {str(e)}")
-            return PayloadHiddenDetail(
-                file_path=file_path,
-                reason=f"Analysis failed: {str(e)}",
-                file_type="unknown",
-                is_test_file=False,
-                is_documentation=False,
-            )

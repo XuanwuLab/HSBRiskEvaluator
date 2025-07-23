@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Optional
 from hsbriskevaluator.evaluator.base import BaseEvaluator, EvalResult
 from hsbriskevaluator.evaluator.community_evaluator import CommunityEvaluator
@@ -6,9 +7,6 @@ from hsbriskevaluator.evaluator.payload_evaluator import PayloadEvaluator
 from hsbriskevaluator.evaluator.dependency_evaluator import DependencyEvaluator
 from hsbriskevaluator.evaluator.CI_evaluator import CIEvaluator
 from hsbriskevaluator.collector.repo_info import RepoInfo
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import asyncio
-from functools import partial
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +26,15 @@ class HSBRiskEvaluator(BaseEvaluator):
 
         # Initialize individual evaluators
         self.community_evaluator = CommunityEvaluator(
-            repo_info, llm_model_name)
-        self.payload_evaluator = PayloadEvaluator(repo_info, llm_model_name)
-        self.dependency_evaluator = DependencyEvaluator(
-            repo_info, max_concurrency)
-        self.CI_evaluator = CIEvaluator(repo_info, llm_model_name)
+            repo_info, llm_model_name, max_concurrency
+        )
+        self.payload_evaluator = PayloadEvaluator(
+            repo_info, llm_model_name, max_concurrency
+        )
+        self.dependency_evaluator = DependencyEvaluator(repo_info, max_concurrency)
+        self.CI_evaluator = CIEvaluator(repo_info, llm_model_name, max_concurrency)
 
-    def evaluate(self) -> EvalResult:
+    async def evaluate(self) -> EvalResult:
         """Perform comprehensive HSB risk evaluation"""
         logger.info(
             f"Starting comprehensive HSB risk evaluation for repository: {self.repo_info.repo_id}"
@@ -47,9 +47,7 @@ class HSBRiskEvaluator(BaseEvaluator):
                 payload_result,
                 dependency_result,
                 CI_result,
-            ) = self._run_evaluations_concurrently()
-
-            # Calculate overall risk score
+            ) = await self._run_evaluations_concurrently()
 
             # Create comprehensive result
             result = EvalResult(
@@ -59,8 +57,7 @@ class HSBRiskEvaluator(BaseEvaluator):
                 ci=CI_result,
             )
 
-            logger.info(
-                f"HSB risk evaluation completed for {self.repo_info.repo_id}")
+            logger.info(f"HSB risk evaluation completed for {self.repo_info.repo_id}")
 
             return result
 
@@ -68,34 +65,59 @@ class HSBRiskEvaluator(BaseEvaluator):
             logger.error(f"Error during HSB risk evaluation: {str(e)}")
             raise
 
-    def _run_evaluations_concurrently(self):
-        """Run all evaluations concurrently using ThreadPoolExecutor"""
+    async def _run_evaluations_concurrently(self):
+        """Run all evaluations concurrently using asyncio"""
         logger.debug("Running evaluations concurrently")
 
-        with ThreadPoolExecutor(max_workers=self.max_concurrency) as executor:
-            # Submit all evaluation tasks
-            community_future = executor.submit(
-                self.community_evaluator.evaluate)
-            payload_future = executor.submit(self.payload_evaluator.evaluate)
-            dependency_future = executor.submit(
-                self.dependency_evaluator.evaluate)
-            CI_future = executor.submit(self.CI_evaluator.evaluate)
+        try:
+            # Create tasks for async evaluations
+            community_task = asyncio.create_task(
+                self.community_evaluator.evaluate(), name="community_evaluation"
+            )
+            payload_task = asyncio.create_task(
+                self.payload_evaluator.evaluate(), name="payload_evaluation"
+            )
+            CI_task = asyncio.create_task(
+                self.CI_evaluator.evaluate(), name="CI_evaluation"
+            )
 
-            # Wait for all results
-            try:
-                community_result = community_future.result()
-                logger.debug("Community evaluation completed")
+            # Dependency evaluator might not be async yet, so handle it separately
+            dependency_task = asyncio.create_task(
+                asyncio.to_thread(self.dependency_evaluator.evaluate),
+                name="dependency_evaluation",
+            )
 
-                payload_result = payload_future.result()
-                logger.debug("Payload evaluation completed")
+            # Wait for all results - don't use return_exceptions to let exceptions propagate
+            community_result = await community_task
+            logger.debug("Community evaluation completed")
 
-                dependency_result = dependency_future.result()
-                logger.debug("Dependency evaluation completed")
+            payload_result = await payload_task
+            logger.debug("Payload evaluation completed")
 
-                CI_result = CI_future.result()
-                logger.debug("CI evaluation completed")
-                return community_result, payload_result, dependency_result, CI_result
+            dependency_result = await dependency_task
+            logger.debug("Dependency evaluation completed")
 
-            except Exception as e:
-                logger.error(f"Evaluation failed: {str(e)}")
-                raise
+            CI_result = await CI_task
+            logger.debug("CI evaluation completed")
+
+            return community_result, payload_result, dependency_result, CI_result
+
+        except Exception as e:
+            logger.error(f"Evaluation failed: {str(e)}")
+            raise
+
+    # Provide a sync wrapper for backward compatibility
+    def evaluate_sync(self) -> EvalResult:
+        """Synchronous wrapper for the async evaluate method"""
+        try:
+            # Check if we're already in an event loop
+            loop = asyncio.get_running_loop()
+            # If we are, we need to run in a new thread to avoid blocking
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.evaluate())
+                return future.result()
+        except RuntimeError:
+            # No event loop running, we can use asyncio.run directly
+            return asyncio.run(self.evaluate())

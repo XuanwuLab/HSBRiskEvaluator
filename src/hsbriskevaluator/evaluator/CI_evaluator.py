@@ -1,63 +1,150 @@
 import logging
-from hsbriskevaluator.evaluator.base import BaseEvaluator, CIEvalResult, WorkflowAnalysis, DangerousTriggerAnalysis
-from hsbriskevaluator.collector.repo_info import RepoInfo, Workflow
-from hsbriskevaluator.utils.llm import get_model
-from langchain_core.prompts import ChatPromptTemplate
-import yaml
+import asyncio
 import re
 import requests
+from hsbriskevaluator.evaluator.base import (
+    BaseEvaluator,
+    CIEvalResult,
+    WorkflowAnalysis,
+    DangerousTriggerAnalysis,
+)
+from hsbriskevaluator.collector.repo_info import RepoInfo, Workflow
+from hsbriskevaluator.utils.llm import get_async_instructor_client, call_llm_with_client
+from hsbriskevaluator.utils.prompt import (
+    CI_WORKFLOW_ANALYSIS_PROMPT,
+    CI_WORKFLOW_ANALYSIS_MODEL_ID,
+)
+import yaml
 
 logger = logging.getLogger(__name__)
 
 
 class CIEvaluator(BaseEvaluator):
-    """Evaluator for Community Quality metrics"""
+    """Evaluator for CI/CD Security metrics"""
 
-    def __init__(self, repo_info: RepoInfo, llm_model_name: str = "anthropic/claude-3.5-sonnet"):
+    def __init__(
+        self,
+        repo_info: RepoInfo,
+        llm_model_name: str = CI_WORKFLOW_ANALYSIS_MODEL_ID,
+        max_concurrency: int = 3,
+    ):
         super().__init__(repo_info)
-        self.llm = get_model(llm_model_name)
+        self.llm_model_name = llm_model_name
+        self.max_concurrency = max_concurrency
+        self._semaphore = asyncio.Semaphore(max_concurrency)
+        self.client = get_async_instructor_client()
 
-    def evaluate(self) -> CIEvalResult:
-        """Evaluate community quality metrics"""
-        logger.info(
-            f"Starting community evaluation for repository: {self.repo_info.repo_id}")
+    async def evaluate(self) -> CIEvalResult:
+        """Evaluate CI/CD security metrics"""
+        logger.info(f"Starting CI evaluation for repository: {self.repo_info.repo_id}")
 
         try:
             has_dependabot = False
             workflow_analysis = []
+
+            # Analyze workflows concurrently
+            github_workflows = []
             for workflow in self.repo_info.workflow_list:
                 if workflow.path.startswith(".github"):
-                    workflow_analysis.append(self._analyze_all(workflow))
+                    github_workflows.append(workflow)
                 elif workflow.path == "dynamic/dependabot/dependabot-updates":
                     has_dependabot = True
 
+            if github_workflows:
+                workflow_analysis = await self._analyze_workflows_concurrently(
+                    github_workflows
+                )
+
             result = CIEvalResult(
-                has_dependabot=has_dependabot,
-                workflow_analysis=workflow_analysis
+                has_dependabot=has_dependabot, workflow_analysis=workflow_analysis
             )
 
-            logger.info(
-                f"Community evaluation completed for {self.repo_info.repo_id}")
+            logger.info(f"CI evaluation completed for {self.repo_info.repo_id}")
             return result
 
         except Exception as e:
-            logger.error(f"Error during community evaluation: {str(e)}")
+            logger.error(f"Error during CI evaluation: {str(e)}")
             raise
 
-    def _analyze_all(self, workflow: Workflow) -> WorkflowAnalysis:
-        workflow_dict = yaml.safe_load(workflow.content)
-        return WorkflowAnalysis(name=workflow.name, path=workflow.path, dangerous_token_permission=self._check_token_permissions(workflow_dict), dangerous_action_provider_or_pin=self._check_action_provider_and_pin(workflow_dict), dangerous_trigger=self._check_dangerous_trigger(workflow))
+    async def _analyze_workflows_concurrently(
+        self, workflows: list[Workflow]
+    ) -> list[WorkflowAnalysis]:
+        """Analyze multiple workflows concurrently with rate limiting"""
+        tasks = []
+        for workflow in workflows:
+            task = self._analyze_all(workflow)
+            tasks.append(task)
+
+        # Execute all tasks concurrently with rate limiting
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Handle any exceptions and return valid results
+        valid_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    f"Failed to analyze workflow {workflows[i].name}: {str(result)}"
+                )
+                # Create a fallback result for failed analysis
+                valid_results.append(
+                    WorkflowAnalysis(
+                        name=workflows[i].name,
+                        path=workflows[i].path,
+                        dangerous_token_permission=False,
+                        dangerous_action_provider_or_pin=False,
+                        dangerous_trigger=DangerousTriggerAnalysis(
+                            is_dangerous=False,
+                            danger_level=0.0,
+                            reason=f"Analysis failed: {str(result)}",
+                        ),
+                    )
+                )
+            else:
+                valid_results.append(result)
+
+        return valid_results
+
+    async def _analyze_all(self, workflow: Workflow) -> WorkflowAnalysis:
+        """Analyze a single workflow for security issues"""
+        try:
+            workflow_dict = yaml.safe_load(workflow.content)
+
+            # Run dangerous trigger analysis asynchronously
+            dangerous_trigger = await self._check_dangerous_trigger(workflow)
+
+            return WorkflowAnalysis(
+                name=workflow.name,
+                path=workflow.path,
+                dangerous_token_permission=self._check_token_permissions(workflow_dict),
+                dangerous_action_provider_or_pin=self._check_action_provider_and_pin(
+                    workflow_dict
+                ),
+                dangerous_trigger=dangerous_trigger,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to parse workflow {workflow.name}: {str(e)}")
+            return WorkflowAnalysis(
+                name=workflow.name,
+                path=workflow.path,
+                dangerous_token_permission=False,
+                dangerous_action_provider_or_pin=False,
+                dangerous_trigger=DangerousTriggerAnalysis(
+                    is_dangerous=False,
+                    danger_level=0.0,
+                    reason=f"Failed to parse workflow: {str(e)}",
+                ),
+            )
 
     def _check_token_permissions(self, workflow: dict) -> bool:
-        # Check if the workflow has dangerous token permissions or not
+        """Check if the workflow has dangerous token permissions"""
         missing_permissions = False
-        if 'permissions' not in workflow:
+        if "permissions" not in workflow:
             missing_permissions = True
-        if workflow.get('permissions') == 'write-all':
+        if workflow.get("permissions") == "write-all":
             return True
-        for jobs in workflow.get('jobs', {}).values():
-            if 'permissions' in jobs:
-                if jobs['permissions'] == 'write-all':
+        for jobs in workflow.get("jobs", {}).values():
+            if "permissions" in jobs:
+                if jobs["permissions"] == "write-all":
                     return True
             else:
                 if missing_permissions:
@@ -65,68 +152,63 @@ class CIEvaluator(BaseEvaluator):
         return False
 
     def _check_action_provider_and_pin(self, workflow: dict) -> bool:
-        # Check if the workflow uses actions from untrusted providers or didn't pin the actions to a specific SHA
-        if 'jobs' not in workflow:
+        """Check if the workflow uses actions from untrusted providers or didn't pin the actions to a specific SHA"""
+        if "jobs" not in workflow:
             return False
-        for job in workflow['jobs'].values():
-            if 'steps' not in job:
+        for job in workflow["jobs"].values():
+            if "steps" not in job:
                 continue
-            for step in job['steps']:
-                if 'uses' in step:
-                    uses = step['uses']
-                    if '@' not in uses:
+            for step in job["steps"]:
+                if "uses" in step:
+                    uses = step["uses"]
+                    if "@" not in uses:
                         return True  # Unpinned action
-                    action, version = uses.split('@', 1)
-                    if not re.match('[a-f0-9]{40}', version):
+                    action, version = uses.split("@", 1)
+                    if not re.match("[a-f0-9]{40}", version):
                         return True  # Not a SHA
-                    if action.startswith('actions/') or action.startswith('github/'):
+                    if action.startswith("actions/") or action.startswith("github/"):
                         continue
-                    if "About badges in GitHub Marketplace" not in requests.get(f"https://github.com/marketplace/actions/{action.split('/')[1]}").text:
-                        return True  # Untrusted action provider
+                    try:
+                        response = requests.get(
+                            f"https://github.com/marketplace/actions/{action.split('/')[1]}",
+                            timeout=10,
+                        )
+                        if "About badges in GitHub Marketplace" not in response.text:
+                            return True  # Untrusted action provider
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to check action provider for {action}: {str(e)}"
+                        )
+                        return True  # Assume dangerous if we can't verify
         return False
 
-    def _check_dangerous_trigger(self, workflow: Workflow) -> DangerousTriggerAnalysis:
-        """Use LLM to analyze if PR description matches its likely implementation"""
-        prompt = ChatPromptTemplate.from_template("""
-        Analyze if this github workflow seems have potential command injection vulnerabilities:
-        {workflow_yml}
+    async def _check_dangerous_trigger(
+        self, workflow: Workflow
+    ) -> DangerousTriggerAnalysis:
+        """Use LLM to analyze if workflow has potential command injection vulnerabilities"""
+        async with self._semaphore:  # Rate limiting
+            messages = [
+                {
+                    "role": "user",
+                    "content": CI_WORKFLOW_ANALYSIS_PROMPT.format(
+                        workflow_content=workflow.content
+                    ),
+                }
+            ]
 
-        Consider factors like:
-        - Use dangerious triggers, like pull_request_target, workflow_run
-        - Use input from sources like issue titles, pull request bodies, or commit messages without proper sanitization.
-        - Use inline shell commands or scripts that execute user input directly.
-        - Use sensitive values like tokens or credentials, without masking via GitHub Secrets.
-        
-        Respond with a JSON object containing:
-        - is_dangerous: boolean
-        - danger_level: float (0.0 to 1.0, where 0.0 is safe and 1.0 is very dangerous)
-        - reason: string (brief explanation)
-
-        Don't include any other text, just the JSON response.
-    """
-                                                  )
-
-        try:
-            response = self.llm.invoke(
-                prompt.format(
-                    workflow_yml=workflow.content
+            try:
+                analysis = await call_llm_with_client(
+                    client=self.client,
+                    model_id=self.llm_model_name,
+                    messages=messages,
+                    response_model=DangerousTriggerAnalysis,
                 )
-            )
-            # Parse LLM response - ensure it's a string
-            response_content = response.content
-            if isinstance(response_content, str):
-                analysis = DangerousTriggerAnalysis.model_validate_json(
-                    response_content)
                 return analysis
-            else:
 
-                logger.warning(
-                    f"Unexpected response type from LLM for {workflow.name}")
-                return DangerousTriggerAnalysis(is_dangerous=False, danger_level=0, reason="Unexpected response type from LLM")
-                return False
-
-        except Exception as e:
-            logger.warning(
-                f"LLM analysis failed for {workflow.name}: {str(e)}")
-            return DangerousTriggerAnalysis(is_dangerous=False, danger_level=0, reason=f"LLM analysis failed for {str(e)}")
-            return False
+            except Exception as e:
+                logger.warning(f"LLM analysis failed for {workflow.name}: {str(e)}")
+                return DangerousTriggerAnalysis(
+                    is_dangerous=False,
+                    danger_level=0.0,
+                    reason=f"LLM analysis failed: {str(e)}",
+                )

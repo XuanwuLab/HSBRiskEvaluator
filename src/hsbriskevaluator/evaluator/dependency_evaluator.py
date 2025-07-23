@@ -20,11 +20,14 @@ class DependencyEvaluator(BaseEvaluator):
         super().__init__(repo_info)
         self.apt_utils = AptUtils(max_concurrency=max_concurrency)
         self.cloud_product_packages, self.cloud_product_dependencies = self._load_yaml(
-            "cloud_products.yaml")
+            "cloud_products.yaml"
+        )
         self.os_default_packages, self.os_default_dependencies = self._load_yaml(
-            "os_default.yaml")
+            "os_default.yaml"
+        )
         self.mainstream_os_packages, self.mainstream_os_dependencies = self._load_yaml(
-            "mainstream_os.yaml")
+            "mainstream_os.yaml"
+        )
 
         # Cache for OS default and mainstream packages discovered via apt
         self._os_default_cache: Set[str] = set()
@@ -54,13 +57,15 @@ class DependencyEvaluator(BaseEvaluator):
             # Calculate supply chain risk score
 
             result = DependencyEvalResult(
-                is_os_default_dependency=self.repo_info.pkt_name in self.os_default_dependencies,
-                is_mainstream_os_dependency=self.repo_info.pkt_name in self.mainstream_os_dependencies,
-                is_cloud_product_dependency=self.repo_info.pkt_name in self.cloud_product_dependencies,
+                is_os_default_dependency=self.repo_info.pkt_name
+                in self.os_default_dependencies,
+                is_mainstream_os_dependency=self.repo_info.pkt_name
+                in self.mainstream_os_dependencies,
+                is_cloud_product_dependency=self.repo_info.pkt_name
+                in self.cloud_product_dependencies,
             )
 
-            logger.info(
-                f"Dependency evaluation completed for {self.repo_info.repo_id}")
+            logger.info(f"Dependency evaluation completed for {self.repo_info.repo_id}")
             return result
 
         except Exception as e:
