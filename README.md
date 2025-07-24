@@ -34,6 +34,7 @@ from hsbriskevaluator.evaluator import HSBRiskEvaluator
 from hsbriskevaluator.collector.repo_info import RepoInfo
 from hsbriskevaluator.collector import collect_all
 from datetime import timedelta
+import asyncio
 
 # Load repository information (from collector)
 repo_info = await collect_all(
@@ -46,7 +47,7 @@ repo_info = await collect_all(
 evaluator = HSBRiskEvaluator(repo_info)
 
 # Run evaluation
-result = evaluator.evaluate()
+result = asyncio.run(evaluator.evaluate())
 
 print(result)
 
@@ -66,18 +67,18 @@ from hsbriskevaluator.evaluator import (
 
 # Community evaluation only
 community_eval = CommunityEvaluator(repo_info)
-community_result = community_eval.evaluate()
+community_result = asyncio.run(community_eval.evaluate())
 
 # Payload evaluation only
 payload_eval = PayloadEvaluator(repo_info)
-payload_result = payload_eval.evaluate()
+payload_result = asyncio.run(payload_eval.evaluate())
 
 # Dependency evaluation only
 dependency_eval = DependencyEvaluator(repo_info)
-dependency_result = dependency_eval.evaluate()
+dependency_result = asyncio.run(dependency_eval.evaluate())
 
 CI_eval = CIEvaluator(repo_info)
-CI_result = dependency_eval.evaluate()
+CI_result = asyncio.run(CI_eval.evaluate())
 ```
 
 ## Evaluation Analysis
