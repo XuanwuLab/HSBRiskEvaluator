@@ -81,9 +81,8 @@ class GitHubRepoCollector:
 
         # Setup todos
         progress_tracker.add_todos([
-            ("init", "Initialize repository"),
-            ("clone", "Clone repository"),
-            ("basic_info", "Collect basic info"),
+            ("clone_repository", "Clone repository"),
+            ("get_basic_info", "Collect basic info"),
             ("issues", "Collect issues"),
             ("prs", "Collect pull requests"),
             ("binary_files", "Find binary files"),
@@ -96,17 +95,18 @@ class GitHubRepoCollector:
 
         async with GitHubDataCollector(self.executor, self.settings) as data_collector:
         # Initialize repository
-            with ProgressContext(progress_tracker, "get basic_info") as ctx:
-                with ctx.step("fetch_repo_info", "Fetch repository metadata"):
+            with ProgressContext(progress_tracker, "get_basic_info") as ctx:
+                with ctx.step("get_basic_info", "Fetch repository metadata"):
                         basic_info =await  data_collector.get_basic_info(repo_name, progress_tracker)
                 
             # Clone repository
-            with ProgressContext(progress_tracker, "clone to local") as clone_ctx:
-                data_dir = get_data_dir()
-                local_repo_dir = await self.local_utils.clone_repository(
-                    repo_name, basic_info.clone_url, self.executor, progress_tracker
-                )
-                local_repo_path = data_dir / local_repo_dir
+            with ProgressContext(progress_tracker, "clone_repository") as clone_ctx:
+                with clone_ctx.step("clone_repository", "Clone repository to local storage"):
+                    data_dir = get_data_dir()
+                    local_repo_dir = await self.local_utils.clone_repository(
+                        repo_name, basic_info.clone_url, self.executor, progress_tracker
+                    )
+                    local_repo_path = data_dir / local_repo_dir
 
 
             async def collect_issues():
