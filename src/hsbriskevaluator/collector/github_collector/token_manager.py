@@ -13,6 +13,7 @@ from github.RateLimit import RateLimit
 
 if TYPE_CHECKING:
     from ..settings import CollectorSettings
+import random
 from itertools import cycle
 from datetime import datetime, timedelta
 
@@ -53,7 +54,7 @@ class GitHubTokenManager:
                 "or configure github_tokens in settings."
             )
 
-        self.tokens = tokens
+        random.shuffle(tokens)
         self.proxy_url = settings.github_proxy_url
         self._token_cycle = cycle(tokens)
         self._current_token = next(self._token_cycle)
