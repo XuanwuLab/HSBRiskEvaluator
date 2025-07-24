@@ -39,6 +39,8 @@ class CollectorSettings(BaseSettings):
     check_runs_commit_limit: int = 3
     check_runs_pr_limit: int = 3
     
+    token_rotation_interval: int = 2
+    
     def get_max_issues(self) -> Optional[int]:
         """Get max issues count with fallback to global default"""
         return self.issues_max_count or self.global_max_count

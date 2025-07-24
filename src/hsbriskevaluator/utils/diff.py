@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from typing import List
 from pydantic import BaseModel, Field
@@ -5,7 +6,7 @@ from copydetect import CopyDetector
 from .file import is_binary, detect_language, get_data_dir
 import subprocess
 from .apt_utils import AptUtils
-from ..collector.github_collector import GitHubRepoCollector
+from ..collector.github_collector.data_collectors import GitHubDataCollector
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class DiffResult(BaseModel):
 class Comparator:
     def __init__(
         self,
-        github_collector: GitHubRepoCollector = GitHubRepoCollector(),
+        github_collector: GitHubDataCollector = GitHubDataCollector(ThreadPoolExecutor(max_workers=1)),
         apt_utils: AptUtils = AptUtils(),
     ):
         self.github_collector = github_collector

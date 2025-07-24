@@ -116,6 +116,14 @@ class BasicInfo(BaseModel):
     watchers_count: int = Field(
         description="number of watchers in the repository")
     forks_count: int = Field(description="number of forks in the repository")
+    html_url: str = Field(
+        description="HTML URL of the repository, usually the same as repo_id",
+        default=""  # Default to empty string if not available
+    )
+    clone_url: str = Field(
+        description="Clone URL of the repository, used for cloning via git",
+        default=""  # Default to empty string if not available
+    )
 
 
 class RepoInfo(BaseModel):

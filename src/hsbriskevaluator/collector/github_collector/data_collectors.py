@@ -5,7 +5,7 @@ Data collection methods for GitHub repository information.
 import asyncio
 import logging
 import time
-from typing import List, Optional, Set, TYPE_CHECKING
+from typing import List, Optional, Set, Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..settings import CollectorSettings
@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from github.Repository import Repository
 from github.Commit import Commit as GithubCommit
-from github import GithubException, RateLimitExceededException
+from github import GithubException
 
 from ..repo_info import (
     BasicInfo,
@@ -30,15 +30,19 @@ from ..repo_info import (
 from .converters import GitHubConverter
 from .utils import LocalRepoUtils
 from ...utils.progress import ProgressTracker, ProgressContext
+from functools import lru_cache
 
 try:
     from tqdm import tqdm
+
     TQDM_AVAILABLE = True
 except ImportError:
     TQDM_AVAILABLE = False
+
     # Fallback for when tqdm is not available
     def tqdm(iterable, *args, **kwargs):
         return iterable
+
 
 logger = logging.getLogger(__name__)
 
@@ -46,72 +50,130 @@ logger = logging.getLogger(__name__)
 class GitHubDataCollector:
     """Handles data collection from GitHub API and local repositories"""
 
-    def __init__(self, executor: ThreadPoolExecutor, settings: Optional["CollectorSettings"] = None, 
-                 token_manager: Optional["GitHubTokenManager"] = None):
+    def __init__(
+        self,
+        executor: ThreadPoolExecutor,
+        settings: Optional["CollectorSettings"] = None,
+    ):
         self.executor = executor
         if settings is None:
             from ..settings import CollectorSettings
+
             settings = CollectorSettings()
         self.settings = settings
-        self.token_manager = token_manager
+
+        # Initialize token manager
+        from .token_manager import GitHubTokenManager
+
+        self.token_manager = GitHubTokenManager(settings)
+
         self.converter = GitHubConverter()
         self.local_utils = LocalRepoUtils(self.settings)
+        self._iteration_count = 0
+        self._repo_cache: Dict[str, Repository] = {}
 
-    def _get_github_client(self):
+    @property
+    def github(self):
         """Get GitHub client from token manager (if available) or fallback"""
-        if self.token_manager:
-            return self.token_manager.get_github_client()
-        return None
-    
-    def _handle_rate_limit_exception(self, e: RateLimitExceededException):
-        """Handle rate limit exceptions with token rotation"""
-        if self.token_manager:
-            logger.warning(f"Rate limit hit, rotating token: {e}")
-            self.token_manager.handle_rate_limit()
+        # Rotate token on every call
+        self._iteration_count += 1
+        logger.info(f"Rotating token on call {self._iteration_count}")
+        if self._iteration_count % self.settings.token_rotation_interval == 0:
+            logger.debug("Rotating GitHub token")
             self.token_manager.rotate_token()
-        else:
-            logger.warning(f"Rate limit hit (no token manager): {e}")
-            
+
+        token_status = self.token_manager.get_token_stats()
+        while token_status and token_status.core.remaining == 0:
+            logger.warning(
+                f"Token {self.token_manager._current_token[:8]}... exhausted, rotating to next token."
+            )
+            self.token_manager.rotate_token()
+            token_status = self.token_manager.get_token_stats()
+            time.sleep(60)  
+
+        return self.token_manager.get_github_client()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        self.executor.shutdown(wait=True)
+        self.token_manager.close_all_clients()
+
+    def _get_repository(self, repo_name: str) -> Repository:
+        """Get repository with in-memory caching"""
+        logger.debug(f"Fetching repository from GitHub API: {repo_name}")
+        repo = self.github.get_repo(repo_name)
+        logger.debug(f"Cached repository: {repo_name}")
+        return repo
+
     async def _run_in_executor(self, func, *args):
         """Run blocking GitHub API calls in executor"""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self.executor, func, *args)
 
-    async def get_basic_info(self, repo: Repository, progress_tracker: Optional[ProgressTracker] = None) -> BasicInfo:
+    def search_repo(self, pkg_name: str) -> Repository:
+        """
+        Search for a repository by name using the GitHub search API
+        Args:
+            pkg_name: Repository name in format 'owner/repo'
+        Returns:
+            Repository: PyGithub Repository object if found, otherwise raises GithubException
+        """
+        try:
+            return self.github.search_repositories(pkg_name)[0]
+        except IndexError:
+            logger.error(f"Error searching for repository {pkg_name}")
+            raise
+
+    async def get_basic_info(
+        self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
+    ) -> BasicInfo:
         """Get basic repository information with progress tracking"""
-        logger.info(f"Collecting basic info for repository: {repo.full_name}")
-        
+        logger.info(f"Collecting basic info for repository: {repo_name}")
+
         start_time = time.time()
         try:
+            repo = self._get_repository(repo_name)
             basic_info = BasicInfo(
                 description=repo.description or "",
                 stargazers_count=repo.stargazers_count,
                 watchers_count=repo.watchers_count,
                 forks_count=repo.forks_count,
+                html_url=repo.html_url or "",
+                clone_url=repo.clone_url or "",
             )
-            
+
             elapsed = time.time() - start_time
-            logger.info(f"Successfully collected basic info for {repo.full_name} in {elapsed:.2f}s")
-            logger.debug(f"Basic info: stars={basic_info.stargazers_count}, "
-                        f"watchers={basic_info.watchers_count}, forks={basic_info.forks_count}")
-            
+            logger.info(
+                f"Successfully collected basic info for {repo_name} in {elapsed:.2f}s"
+            )
+            logger.debug(
+                f"Basic info: stars={basic_info.stargazers_count}, "
+                f"watchers={basic_info.watchers_count}, forks={basic_info.forks_count}"
+            )
+
             return basic_info
-            
+
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error(f"Failed to collect basic info for {repo.full_name} after {elapsed:.2f}s: {e}")
+            logger.error(
+                f"Failed to collect basic info for {repo_name} after {elapsed:.2f}s: {e}"
+            )
             raise
 
-    async def get_issues(self, repo: Repository, progress_tracker: Optional[ProgressTracker] = None) -> List[Issue]:
+    async def get_issues(
+        self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
+    ) -> List[Issue]:
         """
         Get repository issues (excluding pull requests) with comprehensive progress tracking
 
         Args:
-            repo: Repository object
+            repo_name: Repository name in format 'owner/repo'
             progress_tracker: Optional progress tracker for detailed progress reporting
         """
-        logger.info(f"Starting issue collection for repository: {repo.full_name}")
-        
+        logger.info(f"Starting issue collection for repository: {repo_name}")
+
         def _fetch_issues():
             issues = []
             max_issues = self.settings.get_max_issues()
@@ -119,19 +181,22 @@ class GitHubDataCollector:
             since_timestamp = None
             if since_time:
                 since_timestamp = datetime.now(tz=timezone.utc) - since_time
-            
+
             start_time = time.time()
             count = 0
             page_count = 0
             rate_limit_hits = 0
-            
-            logger.info(f"Issue collection parameters: max_issues={max_issues}, since_time={since_time}")
-            
+
+            logger.info(
+                f"Issue collection parameters: max_issues={max_issues}, since_time={since_time}"
+            )
+
             try:
                 # Get issues excluding pull requests
-                logger.debug(f"Fetching issues for {repo.full_name} (state=all)")
+                logger.debug(f"Fetching issues for {repo_name} (state=all)")
+                repo = self._get_repository(repo_name)
                 issues_paginated = repo.get_issues(state="all")
-                
+
                 # Get total count if available (for progress tracking)
                 try:
                     total_issues = issues_paginated.totalCount
@@ -141,85 +206,98 @@ class GitHubDataCollector:
                     logger.debug("Could not determine total issue count")
 
                 # Determine effective limit for progress bar
-                effective_limit = min(max_issues or float('inf'), total_issues or float('inf'))
-                if effective_limit == float('inf'):
+                effective_limit = min(
+                    max_issues or float("inf"), total_issues or float("inf")
+                )
+                if effective_limit == float("inf"):
                     effective_limit = None
 
                 # Create progress bar with tqdm
-                issue_desc = f"Issues from {repo.full_name}"
+                issue_desc = f"Issues from {repo_name}"
                 issues_iter = tqdm(
-                    issues_paginated, 
+                    issues_paginated,
                     desc=issue_desc,
                     total=effective_limit,
                     disable=not TQDM_AVAILABLE,
                     unit="items",
-                    leave=False
+                    leave=False,
                 )
 
                 # Iterate through all issues across all pages
                 for issue in issues_iter:
                     page_count += 1
-                    
+
                     # Check max limit
                     if max_issues is not None and count >= max_issues:
                         logger.info(f"Reached maximum issue limit: {max_issues}")
                         break
-                    
+
                     # Check time limit before processing to avoid unnecessary API calls
                     if (
                         since_timestamp is not None
                         and issue.created_at < since_timestamp
                     ):
-                        logger.info(f"Reached time limit: issue created at {issue.created_at} is older than {since_timestamp}")
+                        logger.info(
+                            f"Reached time limit: issue created at {issue.created_at} is older than {since_timestamp}"
+                        )
                         break
-                        
+
                     # Skip pull requests (they appear in issues endpoint)
                     if issue.pull_request is None:
                         try:
                             converted_issue = self.converter.to_issue(issue)
                             issues.append(converted_issue)
                             count += 1
-                            logger.debug(f"Collected issue #{issue.number}: {issue.title[:50]}...")
+                            logger.debug(
+                                f"Collected issue #{issue.number}: {issue.title[:50]}..."
+                            )
                         except Exception as e:
-                            logger.warning(f"Failed to convert issue #{issue.number}: {e}")
+                            logger.warning(
+                                f"Failed to convert issue #{issue.number}: {e}"
+                            )
                     else:
-                        logger.debug(f"Skipping PR #{issue.number} (appears in issues endpoint)")
+                        logger.debug(
+                            f"Skipping PR #{issue.number} (appears in issues endpoint)"
+                        )
 
                 elapsed = time.time() - start_time
-                logger.info(f"Successfully retrieved {len(issues)} issues for {repo.full_name} in {elapsed:.2f}s")
-                logger.info(f"Collection stats: processed {page_count} total items, "
-                           f"collected {count} issues, rate limit hits: {rate_limit_hits}")
-                
+                logger.info(
+                    f"Successfully retrieved {len(issues)} issues for {repo_name} in {elapsed:.2f}s"
+                )
+                logger.info(
+                    f"Collection stats: processed {page_count} total items, "
+                    f"collected {count} issues, rate limit hits: {rate_limit_hits}"
+                )
+
                 return issues
-                
-            except RateLimitExceededException as e:
-                rate_limit_hits += 1
-                self._handle_rate_limit_exception(e)
-                elapsed = time.time() - start_time
-                logger.warning(f"Rate limit hit during issue collection for {repo.full_name} after {elapsed:.2f}s")
-                return issues  # Return what we have so far
-                
+
             except GithubException as e:
                 elapsed = time.time() - start_time
-                logger.error(f"GitHub API error fetching issues for {repo.full_name} after {elapsed:.2f}s: {e}")
+                logger.error(
+                    f"GitHub API error fetching issues for {repo_name} after {elapsed:.2f}s: {e}"
+                )
                 return issues  # Return what we have so far
-                
+
             except Exception as e:
                 elapsed = time.time() - start_time
-                logger.error(f"Unexpected error fetching issues for {repo.full_name} after {elapsed:.2f}s: {e}")
+                logger.error(
+                    f"Unexpected error fetching issues for {repo_name} after {elapsed:.2f}s: {e}"
+                )
                 return []
 
         return await self._run_in_executor(_fetch_issues)
 
-    async def get_pull_requests(self, repo: Repository, progress_tracker: Optional[ProgressTracker] = None) -> List[PullRequest]:
+    async def get_pull_requests(
+        self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
+    ) -> List[PullRequest]:
         """
         Get repository pull requests with comprehensive progress tracking
 
         Args:
-            repo: Repository object
+            repo_name: Repository name in format 'owner/repo'
             progress_tracker: Optional progress tracker for detailed progress reporting
         """
-        logger.info(f"Starting pull request collection for repository: {repo.full_name}")
+        logger.info(f"Starting pull request collection for repository: {repo_name}")
 
         def _fetch_pull_requests():
             pull_requests = []
@@ -228,103 +306,117 @@ class GitHubDataCollector:
             since_timestamp = None
             if since_time:
                 since_timestamp = datetime.now(tz=timezone.utc) - since_time
-            
+
             start_time = time.time()
             count = 0
             page_count = 0
             rate_limit_hits = 0
-            
-            logger.info(f"PR collection parameters: max_prs={max_prs}, since_time={since_time}")
-            
+
+            logger.info(
+                f"PR collection parameters: max_prs={max_prs}, since_time={since_time}"
+            )
+
             try:
-                logger.debug(f"Fetching pull requests for {repo.full_name} (state=all)")
+                logger.debug(f"Fetching pull requests for {repo_name} (state=all)")
+                repo = self._get_repository(repo_name)
                 pulls_paginated = repo.get_pulls(state="all")
-                
+
                 # Get total count if available
                 try:
                     total_prs = pulls_paginated.totalCount
-                    logger.info(f"Total pull requests available in repository: {total_prs}")
+                    logger.info(
+                        f"Total pull requests available in repository: {total_prs}"
+                    )
                 except Exception:
                     total_prs = None
                     logger.debug("Could not determine total PR count")
 
                 # Determine effective limit for progress bar
-                effective_limit = min(max_prs or float('inf'), total_prs or float('inf'))
-                if effective_limit == float('inf'):
+                effective_limit = min(
+                    max_prs or float("inf"), total_prs or float("inf")
+                )
+                if effective_limit == float("inf"):
                     effective_limit = None
 
                 # Create progress bar with tqdm
-                pr_desc = f"PRs from {repo.full_name}"
+                pr_desc = f"PRs from {repo_name}"
                 prs_iter = tqdm(
-                    pulls_paginated, 
+                    pulls_paginated,
                     desc=pr_desc,
                     total=effective_limit,
                     disable=not TQDM_AVAILABLE,
                     unit="PRs",
-                    leave=False
+                    leave=False,
                 )
-                
+
                 # Convert pull requests to model objects
                 for pr in prs_iter:
                     page_count += 1
-                    
+
                     # Check max limit
                     if max_prs is not None and count >= max_prs:
                         logger.info(f"Reached maximum PR limit: {max_prs}")
                         break
-                        
+
                     # Check time limit
                     if since_timestamp is not None and pr.created_at < since_timestamp:
-                        logger.info(f"Reached time limit: PR created at {pr.created_at} is older than {since_timestamp}")
+                        logger.info(
+                            f"Reached time limit: PR created at {pr.created_at} is older than {since_timestamp}"
+                        )
                         break
-                    
+
                     try:
                         converted_pr = self.converter.to_pull_request(pr)
                         pull_requests.append(converted_pr)
                         count += 1
-                        logger.debug(f"Collected PR #{pr.number}: {pr.title[:50]}... "
-                                   f"(state: {pr.state}, merged: {pr.merged})")
+                        logger.debug(
+                            f"Collected PR #{pr.number}: {pr.title[:50]}... "
+                            f"(state: {pr.state}, merged: {pr.merged})"
+                        )
                     except Exception as e:
                         logger.warning(f"Failed to convert PR #{pr.number}: {e}")
 
                 elapsed = time.time() - start_time
-                logger.info(f"Successfully retrieved {len(pull_requests)} pull requests for {repo.full_name} in {elapsed:.2f}s")
-                logger.info(f"Collection stats: processed {page_count} total PRs, "
-                           f"collected {count} PRs, rate limit hits: {rate_limit_hits}")
-                
+                logger.info(
+                    f"Successfully retrieved {len(pull_requests)} pull requests for {repo_name} in {elapsed:.2f}s"
+                )
+                logger.info(
+                    f"Collection stats: processed {page_count} total PRs, "
+                    f"collected {count} PRs, rate limit hits: {rate_limit_hits}"
+                )
+
                 return pull_requests
-                
-            except RateLimitExceededException as e:
-                rate_limit_hits += 1
-                self._handle_rate_limit_exception(e)
-                elapsed = time.time() - start_time
-                logger.warning(f"Rate limit hit during PR collection for {repo.full_name} after {elapsed:.2f}s")
-                return pull_requests  # Return what we have so far
-                
+
             except GithubException as e:
                 elapsed = time.time() - start_time
-                logger.error(f"GitHub API error fetching pull requests for {repo.full_name} after {elapsed:.2f}s: {e}")
+                logger.error(
+                    f"GitHub API error fetching pull requests for {repo_name} after {elapsed:.2f}s: {e}"
+                )
                 return pull_requests  # Return what we have so far
-                
+
             except Exception as e:
                 elapsed = time.time() - start_time
-                logger.error(f"Unexpected error fetching pull requests for {repo.full_name} after {elapsed:.2f}s: {e}")
+                logger.error(
+                    f"Unexpected error fetching pull requests for {repo_name} after {elapsed:.2f}s: {e}"
+                )
                 return []
 
         return await self._run_in_executor(_fetch_pull_requests)
 
-    async def get_events(self, repo: Repository, progress_tracker: Optional[ProgressTracker] = None) -> List[GithubEvent]:
+    async def get_events(
+        self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
+    ) -> List[GithubEvent]:
         """
         Get repository events with comprehensive progress tracking and logging
 
         Args:
-            repo: Repository object
+            repo_name: Repository name in format 'owner/repo'
             progress_tracker: Optional progress tracker for detailed progress reporting
 
         Returns:
             List[GithubEvent]: List of repository events (excluding WatchEvent, ForkEvent, SponsorshipEvent)
         """
-        logger.info(f"Starting event collection for repository: {repo.full_name}")
+        logger.info(f"Starting event collection for repository: {repo_name}")
 
         def _fetch_events():
             events = []
@@ -333,20 +425,23 @@ class GitHubDataCollector:
             since_timestamp = None
             if since_time:
                 since_timestamp = datetime.now(tz=timezone.utc) - since_time
-            
+
             start_time = time.time()
             count = 0
             page_count = 0
             filtered_count = 0
             rate_limit_hits = 0
-            
-            logger.info(f"Event collection parameters: max_events={max_events}, since_time={since_time}")
-            
+
+            logger.info(
+                f"Event collection parameters: max_events={max_events}, since_time={since_time}"
+            )
+
             try:
                 # Get repository events
-                logger.debug(f"Fetching events for {repo.full_name}")
+                logger.debug(f"Fetching events for {repo_name}")
+                repo = self._get_repository(repo_name)
                 events_paginated = repo.get_events()
-                
+
                 try:
                     total_events = events_paginated.totalCount
                     logger.info(f"Total events available in repository: {total_events}")
@@ -355,36 +450,40 @@ class GitHubDataCollector:
                     logger.debug("Could not determine total event count")
 
                 # Determine effective limit for progress bar
-                effective_limit = min(max_events or float('inf'), total_events or float('inf'))
-                if effective_limit == float('inf'):
+                effective_limit = min(
+                    max_events or float("inf"), total_events or float("inf")
+                )
+                if effective_limit == float("inf"):
                     effective_limit = None
 
                 # Create progress bar with tqdm
-                events_desc = f"Events from {repo.full_name}"
+                events_desc = f"Events from {repo_name}"
                 events_iter = tqdm(
-                    events_paginated, 
+                    events_paginated,
                     desc=events_desc,
                     total=effective_limit,
                     disable=not TQDM_AVAILABLE,
                     unit="events",
-                    leave=False
+                    leave=False,
                 )
 
                 # Iterate through all events across all pages
                 for event in events_iter:
                     page_count += 1
-                    
+
                     # Check max limit
                     if max_events is not None and count >= max_events:
                         logger.info(f"Reached maximum event limit: {max_events}")
                         break
-                        
+
                     # Check time limit before processing to avoid unnecessary API calls
                     if (
                         since_timestamp is not None
                         and event.created_at < since_timestamp
                     ):
-                        logger.info(f"Reached time limit: event created at {event.created_at} is older than {since_timestamp}")
+                        logger.info(
+                            f"Reached time limit: event created at {event.created_at} is older than {since_timestamp}"
+                        )
                         break
 
                     # Convert event and filter out unwanted types
@@ -393,7 +492,9 @@ class GitHubDataCollector:
                         if converted_event:
                             events.append(converted_event)
                             count += 1
-                            logger.debug(f"Collected event: {event.type} by {event.actor.login if event.actor else 'unknown'}")
+                            logger.debug(
+                                f"Collected event: {event.type} by {event.actor.login if event.actor else 'unknown'}"
+                            )
                         else:
                             filtered_count += 1
                             logger.debug(f"Filtered out event: {event.type}")
@@ -401,37 +502,38 @@ class GitHubDataCollector:
                         logger.warning(f"Failed to convert event {event.type}: {e}")
 
                 elapsed = time.time() - start_time
-                logger.info(f"Successfully retrieved {len(events)} events for {repo.full_name} in {elapsed:.2f}s")
-                logger.info(f"Collection stats: processed {page_count} total events, "
-                           f"collected {count} events, filtered {filtered_count}, rate limit hits: {rate_limit_hits}")
-                
+                logger.info(
+                    f"Successfully retrieved {len(events)} events for {repo_name} in {elapsed:.2f}s"
+                )
+                logger.info(
+                    f"Collection stats: processed {page_count} total events, "
+                    f"collected {count} events, filtered {filtered_count}, rate limit hits: {rate_limit_hits}"
+                )
+
                 return events
-                
-            except RateLimitExceededException as e:
-                rate_limit_hits += 1
-                self._handle_rate_limit_exception(e)
-                elapsed = time.time() - start_time
-                logger.warning(f"Rate limit hit during event collection for {repo.full_name} after {elapsed:.2f}s")
-                return events  # Return what we have so far
-                
+
             except GithubException as e:
                 elapsed = time.time() - start_time
-                logger.error(f"GitHub API error fetching events for {repo.full_name} after {elapsed:.2f}s: {e}")
+                logger.error(
+                    f"GitHub API error fetching events for {repo_name} after {elapsed:.2f}s: {e}"
+                )
                 return events  # Return what we have so far
-                
+
             except Exception as e:
                 elapsed = time.time() - start_time
-                logger.error(f"Unexpected error fetching events for {repo.full_name} after {elapsed:.2f}s: {e}")
+                logger.error(
+                    f"Unexpected error fetching events for {repo_name} after {elapsed:.2f}s: {e}"
+                )
                 return []
 
         return await self._run_in_executor(_fetch_events)
 
-    async def get_commits(self, repo: Repository) -> List[Commit]:
+    async def get_commits(self, repo_name: str) -> List[Commit]:
         """
         Get repository commits with detailed information and proper pagination support
 
         Args:
-            repo: Repository object
+            repo_name: Repository name in format 'owner/repo'
         """
 
         def _fetch_commits():
@@ -442,9 +544,10 @@ class GitHubDataCollector:
             if since_time:
                 since_timestamp = datetime.now(tz=timezone.utc) - since_time
             count = 0
-            
+
             try:
                 # Get repository commits
+                repo = self._get_repository(repo_name)
                 commits_paginated = repo.get_commits()
 
                 # Iterate through all commits across all pages
@@ -452,7 +555,7 @@ class GitHubDataCollector:
                     # Check max limit
                     if max_commits is not None and count >= max_commits:
                         break
-                        
+
                     # Check time limit before processing to avoid unnecessary API calls
                     if (
                         since_timestamp is not None
@@ -463,7 +566,7 @@ class GitHubDataCollector:
                     commits.append(self.converter.to_commit(commit))
                     count += 1
 
-                logger.info(f"Retrieved {len(commits)} commits for {repo.full_name}")
+                logger.info(f"Retrieved {len(commits)} commits for {repo_name}")
                 return commits
             except GithubException as e:
                 logger.error(f"Error fetching commits: {e}")
@@ -484,10 +587,13 @@ class GitHubDataCollector:
         return await self.local_utils.get_local_commits(local_repo_path)
 
     async def get_workflows(
-        self, repo: Repository, local_repo_path: Path, progress_tracker: Optional[ProgressTracker] = None
+        self,
+        repo_name: str,
+        local_repo_path: Path,
+        progress_tracker: Optional[ProgressTracker] = None,
     ) -> List[Workflow]:
         """Get GitHub Actions workflows with comprehensive progress tracking"""
-        logger.info(f"Starting workflow collection for repository: {repo.full_name}")
+        logger.info(f"Starting workflow collection for repository: {repo_name}")
 
         def _fetch_workflows():
             workflows = []
@@ -496,29 +602,34 @@ class GitHubDataCollector:
             count = 0
             file_read_errors = 0
             rate_limit_hits = 0
-            
-            logger.info(f"Workflow collection parameters: max_workflows={max_workflows}")
-            
+
+            logger.info(
+                f"Workflow collection parameters: max_workflows={max_workflows}"
+            )
+
             try:
-                logger.debug(f"Fetching workflows for {repo.full_name}")
+                logger.debug(f"Fetching workflows for {repo_name}")
+                repo = self._get_repository(repo_name)
                 workflows_paginated = repo.get_workflows()
-                
+
                 try:
                     total_workflows = workflows_paginated.totalCount
-                    logger.info(f"Total workflows available in repository: {total_workflows}")
+                    logger.info(
+                        f"Total workflows available in repository: {total_workflows}"
+                    )
                 except Exception:
                     total_workflows = None
                     logger.debug("Could not determine total workflow count")
-                
+
                 # Create progress bar with tqdm
-                workflows_desc = f"Workflows from {repo.full_name}"
+                workflows_desc = f"Workflows from {repo_name}"
                 workflows_iter = tqdm(
-                    workflows_paginated, 
+                    workflows_paginated,
                     desc=workflows_desc,
                     total=total_workflows,
                     disable=not TQDM_AVAILABLE,
                     unit="workflows",
-                    leave=False
+                    leave=False,
                 )
 
                 for workflow in workflows_iter:
@@ -526,15 +637,19 @@ class GitHubDataCollector:
                     if max_workflows is not None and count >= max_workflows:
                         logger.info(f"Reached maximum workflow limit: {max_workflows}")
                         break
-                    
-                    logger.debug(f"Processing workflow: {workflow.name} (path: {workflow.path})")
-                    
+
+                    logger.debug(
+                        f"Processing workflow: {workflow.name} (path: {workflow.path})"
+                    )
+
                     # Read workflow file from local repository
                     file_path = local_repo_path / workflow.path
                     try:
                         with open(file_path, "r", encoding="utf-8") as f:
                             content = f.read()
-                        logger.debug(f"Successfully read workflow file: {file_path} ({len(content)} chars)")
+                        logger.debug(
+                            f"Successfully read workflow file: {file_path} ({len(content)} chars)"
+                        )
                     except FileNotFoundError:
                         file_read_errors += 1
                         content = "Not from a file in repo"
@@ -543,46 +658,53 @@ class GitHubDataCollector:
                         file_read_errors += 1
                         content = f"Error reading file: {e}"
                         logger.warning(f"Error reading workflow file {file_path}: {e}")
-                    
+
                     try:
                         workflow_obj = Workflow(
                             name=workflow.name, content=content, path=workflow.path
                         )
                         workflows.append(workflow_obj)
                         count += 1
-                        logger.debug(f"Successfully collected workflow: {workflow.name}")
+                        logger.debug(
+                            f"Successfully collected workflow: {workflow.name}"
+                        )
                     except Exception as e:
-                        logger.warning(f"Failed to create workflow object for {workflow.name}: {e}")
+                        logger.warning(
+                            f"Failed to create workflow object for {workflow.name}: {e}"
+                        )
 
                 elapsed = time.time() - start_time
-                logger.info(f"Successfully retrieved {len(workflows)} workflows for {repo.full_name} in {elapsed:.2f}s")
-                logger.info(f"Collection stats: processed {count} workflows, "
-                           f"file read errors: {file_read_errors}, rate limit hits: {rate_limit_hits}")
-                
+                logger.info(
+                    f"Successfully retrieved {len(workflows)} workflows for {repo_name} in {elapsed:.2f}s"
+                )
+                logger.info(
+                    f"Collection stats: processed {count} workflows, "
+                    f"file read errors: {file_read_errors}, rate limit hits: {rate_limit_hits}"
+                )
+
                 return workflows
-                
-            except RateLimitExceededException as e:
-                rate_limit_hits += 1
-                self._handle_rate_limit_exception(e)
-                elapsed = time.time() - start_time
-                logger.warning(f"Rate limit hit during workflow collection for {repo.full_name} after {elapsed:.2f}s")
-                return workflows  # Return what we have so far
-                
+
             except GithubException as e:
                 elapsed = time.time() - start_time
-                logger.error(f"GitHub API error fetching workflows for {repo.full_name} after {elapsed:.2f}s: {e}")
+                logger.error(
+                    f"GitHub API error fetching workflows for {repo_name} after {elapsed:.2f}s: {e}"
+                )
                 return workflows  # Return what we have so far
-                
+
             except Exception as e:
                 elapsed = time.time() - start_time
-                logger.error(f"Unexpected error fetching workflows for {repo.full_name} after {elapsed:.2f}s: {e}")
+                logger.error(
+                    f"Unexpected error fetching workflows for {repo_name} after {elapsed:.2f}s: {e}"
+                )
                 return []
 
         return await self._run_in_executor(_fetch_workflows)
 
-    async def get_check_runs(self, repo: Repository, progress_tracker: Optional[ProgressTracker] = None) -> List[CheckRun]:
+    async def get_check_runs(
+        self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
+    ) -> List[CheckRun]:
         """Get check runs from recent commits and pull requests with comprehensive tracking"""
-        logger.info(f"Starting check run collection for repository: {repo.full_name}")
+        logger.info(f"Starting check run collection for repository: {repo_name}")
 
         def _fetch_check_runs():
             check_runs: Set[str] = set()
@@ -591,127 +713,171 @@ class GitHubDataCollector:
             commits_processed = 0
             prs_processed = 0
             rate_limit_hits = 0
-            
-            logger.info(f"Check run collection parameters: max_check_runs={max_check_runs}, "
-                       f"commit_limit={self.settings.check_runs_commit_limit}, "
-                       f"pr_limit={self.settings.check_runs_pr_limit}")
-            
+
+            logger.info(
+                f"Check run collection parameters: max_check_runs={max_check_runs}, "
+                f"commit_limit={self.settings.check_runs_commit_limit}, "
+                f"pr_limit={self.settings.check_runs_pr_limit}"
+            )
+
             try:
+
                 def add_check_run(commit: GithubCommit):
                     """Add check runs and statuses from a commit"""
                     local_adds = 0
                     try:
                         # Add GitHub check runs
                         for check_run in commit.get_check_runs():
-                            if max_check_runs is not None and len(check_runs) >= max_check_runs:
+                            if (
+                                max_check_runs is not None
+                                and len(check_runs) >= max_check_runs
+                            ):
                                 return True, local_adds  # Signal to break outer loop
                             if check_run.name not in check_runs:
                                 check_runs.add(check_run.name)
                                 local_adds += 1
-                                logger.debug(f"Added check run: {check_run.name} from commit {commit.sha[:8]}")
-                        
+                                logger.debug(
+                                    f"Added check run: {check_run.name} from commit {commit.sha[:8]}"
+                                )
+
                         # Add legacy status checks
                         for status in commit.get_statuses():
-                            if max_check_runs is not None and len(check_runs) >= max_check_runs:
+                            if (
+                                max_check_runs is not None
+                                and len(check_runs) >= max_check_runs
+                            ):
                                 return True, local_adds  # Signal to break outer loop
                             if status.context not in check_runs:
                                 check_runs.add(status.context)
                                 local_adds += 1
-                                logger.debug(f"Added status check: {status.context} from commit {commit.sha[:8]}")
-                                
+                                logger.debug(
+                                    f"Added status check: {status.context} from commit {commit.sha[:8]}"
+                                )
+
                     except Exception as e:
-                        logger.warning(f"Error processing check runs for commit {commit.sha[:8]}: {e}")
-                    
+                        logger.warning(
+                            f"Error processing check runs for commit {commit.sha[:8]}: {e}"
+                        )
+
                     return False, local_adds
 
                 # Check recent commits with tqdm
-                logger.debug(f"Processing recent commits (limit: {self.settings.check_runs_commit_limit})")
+                logger.debug(
+                    f"Processing recent commits (limit: {self.settings.check_runs_commit_limit})"
+                )
                 try:
-                    commits_list = list(repo.get_commits()[:self.settings.check_runs_commit_limit])
+                    repo = self._get_repository(repo_name)
+                    commits_list = list(
+                        repo.get_commits()[: self.settings.check_runs_commit_limit]
+                    )
                     commits_iter = tqdm(
-                        commits_list, 
+                        commits_list,
                         desc=f"Check runs from commits",
                         disable=not TQDM_AVAILABLE,
                         unit="commits",
-                        leave=False
+                        leave=False,
                     )
-                    
+
                     for commit in commits_iter:
                         commits_processed += 1
                         should_break, added = add_check_run(commit)
-                        
-                        
+
                         if should_break:
-                            logger.info(f"Reached max check runs limit from commits: {max_check_runs}")
+                            logger.info(
+                                f"Reached max check runs limit from commits: {max_check_runs}"
+                            )
                             break
                 except Exception as e:
                     logger.warning(f"Error processing commits for check runs: {e}")
-                
+
                 # Check pull requests if we haven't reached the limit
                 if max_check_runs is None or len(check_runs) < max_check_runs:
-                    logger.debug(f"Processing recent pull requests (limit: {self.settings.check_runs_pr_limit})")
-                    
+                    logger.debug(
+                        f"Processing recent pull requests (limit: {self.settings.check_runs_pr_limit})"
+                    )
+
                     try:
-                        prs_list = list(repo.get_pulls(state="all")[:self.settings.check_runs_pr_limit])
+                        repo = self._get_repository(repo_name)
+                        prs_list = list(
+                            repo.get_pulls(state="all")[
+                                : self.settings.check_runs_pr_limit
+                            ]
+                        )
                         prs_iter = tqdm(
-                            prs_list, 
+                            prs_list,
                             desc=f"Check runs from PRs",
                             disable=not TQDM_AVAILABLE,
                             unit="PRs",
-                            leave=False
+                            leave=False,
                         )
-                        
+
                         for pull in prs_iter:
                             prs_processed += 1
                             pr_commits_processed = 0
-                            
+
                             try:
                                 for commit in pull.get_commits():
                                     pr_commits_processed += 1
                                     should_break, added = add_check_run(commit)
                                     if should_break:
-                                        logger.info(f"Reached max check runs limit from PR #{pull.number}: {max_check_runs}")
+                                        logger.info(
+                                            f"Reached max check runs limit from PR #{pull.number}: {max_check_runs}"
+                                        )
                                         break
-                                        
-                                logger.debug(f"Processed PR #{pull.number} with {pr_commits_processed} commits")
-                                        
+
+                                logger.debug(
+                                    f"Processed PR #{pull.number} with {pr_commits_processed} commits"
+                                )
+
                             except Exception as e:
-                                logger.warning(f"Error processing commits for PR #{pull.number}: {e}")
-                                
-                            if max_check_runs is not None and len(check_runs) >= max_check_runs:
-                                logger.info(f"Reached max check runs limit: {max_check_runs}")
+                                logger.warning(
+                                    f"Error processing commits for PR #{pull.number}: {e}"
+                                )
+
+                            if (
+                                max_check_runs is not None
+                                and len(check_runs) >= max_check_runs
+                            ):
+                                logger.info(
+                                    f"Reached max check runs limit: {max_check_runs}"
+                                )
                                 break
-                                
+
                     except Exception as e:
-                        logger.warning(f"Error processing pull requests for check runs: {e}")
+                        logger.warning(
+                            f"Error processing pull requests for check runs: {e}"
+                        )
 
                 elapsed = time.time() - start_time
                 check_run_list = list(map(lambda name: CheckRun(name=name), check_runs))
-                
-                logger.info(f"Successfully retrieved {len(check_run_list)} unique check runs for {repo.full_name} in {elapsed:.2f}s")
-                logger.info(f"Collection stats: processed {commits_processed} commits, "
-                           f"{prs_processed} PRs, rate limit hits: {rate_limit_hits}")
-                
+
+                logger.info(
+                    f"Successfully retrieved {len(check_run_list)} unique check runs for {repo_name} in {elapsed:.2f}s"
+                )
+                logger.info(
+                    f"Collection stats: processed {commits_processed} commits, "
+                    f"{prs_processed} PRs, rate limit hits: {rate_limit_hits}"
+                )
+
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Check run names found: {sorted(list(check_runs))}")
-                
+
                 return check_run_list
-                
-            except RateLimitExceededException as e:
-                rate_limit_hits += 1
-                self._handle_rate_limit_exception(e)
-                elapsed = time.time() - start_time
-                logger.warning(f"Rate limit hit during check run collection for {repo.full_name} after {elapsed:.2f}s")
-                return list(map(lambda name: CheckRun(name=name), check_runs))  # Return what we have so far
-                
+
             except GithubException as e:
                 elapsed = time.time() - start_time
-                logger.error(f"GitHub API error fetching check runs for {repo.full_name} after {elapsed:.2f}s: {e}")
-                return list(map(lambda name: CheckRun(name=name), check_runs))  # Return what we have so far
-                
+                logger.error(
+                    f"GitHub API error fetching check runs for {repo_name} after {elapsed:.2f}s: {e}"
+                )
+                return list(
+                    map(lambda name: CheckRun(name=name), check_runs)
+                )  # Return what we have so far
+
             except Exception as e:
                 elapsed = time.time() - start_time
-                logger.error(f"Unexpected error fetching check runs for {repo.full_name} after {elapsed:.2f}s: {e}")
+                logger.error(
+                    f"Unexpected error fetching check runs for {repo_name} after {elapsed:.2f}s: {e}"
+                )
                 return []
 
         return await self._run_in_executor(_fetch_check_runs)
