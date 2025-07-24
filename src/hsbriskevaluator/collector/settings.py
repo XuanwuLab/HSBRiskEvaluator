@@ -17,7 +17,7 @@ class CollectorSettings(BaseSettings):
     git_clone_timeout_seconds: int = 300
     
     # Global defaults (None means fetch all)
-    global_max_count: Optional[int] = 100
+    global_max_count: Optional[int] = None
     global_since_days: Optional[int] = None
     
     # Specific limits for each data type (None falls back to global)

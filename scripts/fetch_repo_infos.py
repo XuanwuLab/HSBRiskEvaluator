@@ -60,7 +60,7 @@ def get_repo_name(git_url: str) -> str:
         raise
 
 
-async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore, settings: CollectorSettings):
+async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore):
     """
     Collect repository information for a single package file and update it if needed.
 
@@ -68,6 +68,15 @@ async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore, settings
         package_info (Dict): Information about the package.
         semaphore (asyncio.Semaphore): A semaphore to limit concurrency.
     """
+
+    github_tokens = []
+    with open(Path(__file__).parent.parent / ".github_tokens", "r") as f:
+        github_tokens = [line.strip() for line in f if line.strip()]
+    settings = CollectorSettings(
+        github_tokens=github_tokens,
+    )
+    logger.info(f"github_tokens: {len(github_tokens)} tokens loaded.")
+    # Create tasks for each package
     async with semaphore:  # Ensure concurrency limit
         try:
             # Validate package information
@@ -130,16 +139,8 @@ async def collect_repo_info(package_file: Path, max_concurrency: int = 5):
     package_dict_by_name = load_yaml(package_file)
     semaphore = asyncio.Semaphore(max_concurrency)
 
-    github_tokens = []
-    with open(Path(__file__).parent.parent / ".github_tokens", "r") as f:
-        github_tokens = [line.strip() for line in f if line.strip()]
-    settings = CollectorSettings(
-        github_tokens=github_tokens,
-    )
-    logger.info(f"github_tokens: {len(github_tokens)} tokens loaded.")
-    # Create tasks for each package
     tasks = [
-        collect_one(package_info, semaphore, settings)
+        collect_one(package_info, semaphore)
         for package_name, package_info in package_dict_by_name.items()
     ]
 
@@ -159,4 +160,4 @@ if __name__ == "__main__":
         if not file.exists():
             logger.error(f"File {file} does not exist.")
         else:
-            asyncio.run(collect_repo_info(file, 1))
+            asyncio.run(collect_repo_info(file, 5))
