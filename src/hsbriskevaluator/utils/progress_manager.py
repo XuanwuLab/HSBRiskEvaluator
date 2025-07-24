@@ -56,6 +56,15 @@ class ProgressManager:
             log_dir.mkdir(exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             ProgressManager._log_file = log_dir / f"hsbriskevaluator_{timestamp}.log"
+            
+            # Create a symlink to the latest log file for easy access
+            latest_link = log_dir / "latest.log"
+            try:
+                if latest_link.exists() or latest_link.is_symlink():
+                    latest_link.unlink()
+                latest_link.symlink_to(ProgressManager._log_file.name)
+            except Exception:
+                pass  # Symlink creation might fail on some systems
         
         # Configure logger to write only to file
         self.logger = logging.getLogger(f"HSBRisk.{self.process_name}")
@@ -73,8 +82,14 @@ class ProgressManager:
         
         # Print log file location once
         if self.process_name == "MainProcess":
+            log_dir = ProgressManager._log_file.parent
+            latest_link = log_dir / "latest.log"
             print(f"\n📝 Logs are being written to: {ProgressManager._log_file}")
-            print("💡 You can monitor logs with: tail -f {}\n".format(ProgressManager._log_file))
+            if latest_link.exists():
+                print(f"💡 Monitor logs with: tail -f {latest_link}")
+            else:
+                print(f"💡 Monitor logs with: tail -f {ProgressManager._log_file}")
+            print()
     
     def _reserve_terminal_space(self):
         """Reserve terminal space for progress bars"""
