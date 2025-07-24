@@ -30,6 +30,15 @@ class PackageInfo(BaseModel):
     parent_package: Optional[str] = None
 
 
+class Dependent(BaseModel):
+    """Information about a recursive dependency from apt-rdepends"""
+
+    parent: str
+    type: str
+    name: str
+    version: Optional[str] = None
+
+
 class RecursiveDependency(BaseModel):
     """Information about a recursive dependency from apt-rdepends"""
 
