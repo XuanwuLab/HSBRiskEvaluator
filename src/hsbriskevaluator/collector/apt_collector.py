@@ -13,11 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from hsbriskevaluator.collector.repo_info import Dependent, RepoInfo
 from hsbriskevaluator.collector.settings import CollectorSettings
 from hsbriskevaluator.utils.apt_utils import AptUtils
-from hsbriskevaluator.utils.progress import (
-    create_progress_tracker,
-    ProgressContext,
-    ProgressTracker,
-)
+# Progress tracking removed
 
 # Remove logging.basicConfig to avoid conflicts with progress tracking
 # The progress system handles logging configuration automatically
@@ -61,14 +57,13 @@ class APTCollector:
         return await loop.run_in_executor(self.executor, func, *args)
 
     async def collect_dependencies(
-        self, package_name: str, progress_tracker: Optional[ProgressTracker] = None
+        self, package_name: str
     ) -> List[Dependent]:
         """
         Collect recursive dependencies for a package
 
         Args:
             package_name: The Debian package name
-            progress_tracker: Optional progress tracker for step logging
 
         Returns:
             List[Dependent]: List of recursive dependencies
@@ -78,25 +73,8 @@ class APTCollector:
         """
         logger.info(f"Starting dependency collection for package: {package_name}")
 
-        # Add detailed steps if we have a progress tracker
-        if progress_tracker:
-            step1 = progress_tracker.add_step(
-                "collect", "apt_cache_update", "Update APT cache if needed"
-            )
-
         try:
             start_time = time.time()
-
-            if progress_tracker:
-                progress_tracker.complete_step(
-                    "collect", "apt_cache_update", "✓ Cache ready"
-                )
-                step2 = progress_tracker.add_step(
-                    "collect",
-                    "recursive_deps",
-                    "Query recursive dependencies",
-                    f"Target: {package_name}",
-                )
 
             dependencies = await self._run_in_executor(
                 self.apt_utils.get_recursive_dependencies, package_name
@@ -104,12 +82,6 @@ class APTCollector:
 
             collection_duration = time.time() - start_time
 
-            if progress_tracker:
-                progress_tracker.complete_step(
-                    "collect",
-                    "recursive_deps",
-                    f"✓ Found {len(dependencies)} deps in {collection_duration:.2f}s",
-                )
 
             logger.info(
                 f"Successfully collected {len(dependencies)} dependencies for {package_name}"
@@ -119,10 +91,6 @@ class APTCollector:
         except Exception as e:
             error_msg = f"Failed to collect dependencies for {package_name}: {str(e)}"
             logger.error(error_msg)
-            if progress_tracker:
-                progress_tracker.complete_step(
-                    "collect", "recursive_deps", f"❌ {error_msg}"
-                )
             raise RuntimeError(
                 f"Dependency collection failed for {package_name}"
             ) from e
@@ -165,77 +133,36 @@ class APTCollector:
         return dependency_lists
 
     async def enrich_repo_info_with_dependencies(
-        self, repo_info: RepoInfo, progress_tracker: Optional[ProgressTracker] = None
+        self, repo_info: RepoInfo
     ) -> RepoInfo:
         """
         Enrich a RepoInfo object with dependency information
 
         Args:
             repo_info: RepoInfo object to enrich
-            progress_tracker: Optional progress tracker for external tracking
 
         Returns:
             RepoInfo: Updated RepoInfo object with dependencies
         """
-        # Create progress tracker if not provided
-        if progress_tracker is None:
-            progress_tracker = create_progress_tracker(
-                name=f"Enriching {repo_info.repo_id}", show_progress=self.show_progress
-            )
-            show_summary = True
-        else:
-            show_summary = False
-
-        # Setup todos
-        progress_tracker.add_todos(
-            [
-                ("validate", "Validate package name"),
-                ("collect", "Collect dependencies"),
-                ("enrich", "Enrich repository info"),
-            ]
-        )
-
         try:
             # Validate package name
-            with ProgressContext(progress_tracker, "validate") as validate_ctx:
-                with validate_ctx.step(
-                    "check_package_name",
-                    "Validate package name",
-                    repo_info.pkt_name or "None",
-                ):
-                    if not repo_info.pkt_name:
-                        logger.warning(
-                            f"No package name provided for repo {repo_info.repo_id}, skipping dependency collection"
-                        )
-                        progress_tracker.skip_todo("collect")
-                        progress_tracker.skip_todo("enrich")
-                        return repo_info
+            if not repo_info.pkt_name:
+                logger.warning(
+                    f"No package name provided for repo {repo_info.repo_id}, skipping dependency collection"
+                )
+                return repo_info
 
             # Collect dependencies
-            with ProgressContext(progress_tracker, "collect") as collect_ctx:
-                dependencies = await self.collect_dependencies(
-                    repo_info.pkt_name, progress_tracker
-                )
+            dependencies = await self.collect_dependencies(repo_info.pkt_name)
 
             # Enrich repo info
-            with ProgressContext(progress_tracker, "enrich") as enrich_ctx:
-                with enrich_ctx.step("copy_repo_info", "Create updated RepoInfo copy"):
-                    # Create a new RepoInfo object with updated dependencies
-                    updated_repo_info = repo_info.model_copy()
-
-                with enrich_ctx.step(
-                    "add_dependencies",
-                    "Add dependencies to RepoInfo",
-                    f"Adding {len(dependencies)} deps",
-                ):
-                    updated_repo_info.dependent_list = dependencies
+            # Create a new RepoInfo object with updated dependencies
+            updated_repo_info = repo_info.model_copy()
+            updated_repo_info.dependent_list = dependencies
 
             logger.info(
                 f"Successfully enriched {repo_info.repo_id} with {len(dependencies)} dependencies"
             )
-
-            if show_summary:
-                progress_tracker.print_summary()
 
             return updated_repo_info
 
@@ -243,8 +170,6 @@ class APTCollector:
             logger.error(
                 f"Failed to enrich repo {repo_info.repo_id} with dependencies: {str(e)}"
             )
-            if show_summary:
-                progress_tracker.print_summary()
             # Return original repo_info if dependency collection fails
             return repo_info
 

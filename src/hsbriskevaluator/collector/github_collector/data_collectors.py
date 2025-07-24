@@ -29,17 +29,12 @@ from ..repo_info import (
 )
 from .converters import GitHubConverter
 from .utils import LocalRepoUtils
-from ...utils.progress import ProgressTracker, ProgressContext
 from functools import lru_cache
+from tqdm import tqdm
+from ...utils.progress_manager import get_progress_manager
 
-from ...utils.display import (
-    organized_tqdm as tqdm,
-    TQDM_AVAILABLE,
-    StepContext,
-    update_current_step,
-)
-
-logger = logging.getLogger(__name__)
+progress_manager = get_progress_manager()
+logger = progress_manager.logger
 
 
 class GitHubDataCollector:
@@ -122,54 +117,50 @@ class GitHubDataCollector:
             raise
 
     async def get_basic_info(
-        self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
+        self, repo_name: str
     ) -> BasicInfo:
-        """Get basic repository information with progress tracking"""
-        with StepContext(f"Getting basic info for {repo_name}"):
-            logger.info(f"Collecting basic info for repository: {repo_name}")
+        """Get basic repository information"""
+        logger.info(f"Collecting basic info for repository: {repo_name}")
 
-            start_time = time.time()
-            try:
-                update_current_step(f"Fetching repository: {repo_name}")
-                repo = self._get_repository(repo_name)
+        start_time = time.time()
+        try:
+            repo = self._get_repository(repo_name)
 
-                update_current_step(f"Reading repo metadata: {repo_name}")
-                basic_info = BasicInfo(
-                    description=repo.description or "",
-                    stargazers_count=repo.stargazers_count,
-                    watchers_count=repo.watchers_count,
-                    forks_count=repo.forks_count,
-                    html_url=repo.html_url or "",
-                    clone_url=repo.clone_url or "",
-                )
+            basic_info = BasicInfo(
+                description=repo.description or "",
+                stargazers_count=repo.stargazers_count,
+                watchers_count=repo.watchers_count,
+                forks_count=repo.forks_count,
+                html_url=repo.html_url or "",
+                clone_url=repo.clone_url or "",
+            )
 
-                elapsed = time.time() - start_time
-                logger.info(
-                    f"Successfully collected basic info for {repo_name} in {elapsed:.2f}s"
-                )
-                logger.debug(
-                    f"Basic info: stars={basic_info.stargazers_count}, "
-                    f"watchers={basic_info.watchers_count}, forks={basic_info.forks_count}"
-                )
+            elapsed = time.time() - start_time
+            logger.info(
+                f"Successfully collected basic info for {repo_name} in {elapsed:.2f}s"
+            )
+            logger.debug(
+                f"Basic info: stars={basic_info.stargazers_count}, "
+                f"watchers={basic_info.watchers_count}, forks={basic_info.forks_count}"
+            )
 
-                return basic_info
+            return basic_info
 
-            except Exception as e:
-                elapsed = time.time() - start_time
-                logger.error(
-                    f"Failed to collect basic info for {repo_name} after {elapsed:.2f}s: {e}"
-                )
-                raise
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(
+                f"Failed to collect basic info for {repo_name} after {elapsed:.2f}s: {e}"
+            )
+            raise
 
     async def get_issues(
-        self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
+        self, repo_name: str
     ) -> List[Issue]:
         """
-        Get repository issues (excluding pull requests) with comprehensive progress tracking
+        Get repository issues (excluding pull requests)
 
         Args:
             repo_name: Repository name in format 'owner/repo'
-            progress_tracker: Optional progress tracker for detailed progress reporting
         """
         logger.info(f"Starting issue collection for repository: {repo_name}")
 
@@ -211,53 +202,54 @@ class GitHubDataCollector:
                 if effective_limit == float("inf"):
                     effective_limit = None
 
-                # Create progress bar with tqdm
+                # Create progress bar with progress manager
                 issue_desc = f"Issues from {repo_name}"
-                issues_iter = tqdm(
-                    issues_paginated,
-                    desc=issue_desc,
+                
+                # Use progress manager for sub-progress tracking
+                with progress_manager.create_sub_progress(
                     total=effective_limit,
-                    disable=not TQDM_AVAILABLE,
+                    desc=issue_desc,
                     unit="items",
-                    leave=False,
-                )
+                    parent_id="issues"
+                ) as issues_progress:
 
-                # Iterate through all issues across all pages
-                for issue in issues_iter:
-                    page_count += 1
+                    # Iterate through all issues across all pages
+                    for issue in issues_paginated:
+                        page_count += 1
+                        issues_progress.update(1)
 
-                    # Check max limit
-                    if max_issues is not None and count >= max_issues:
-                        logger.info(f"Reached maximum issue limit: {max_issues}")
-                        break
+                        # Check max limit
+                        if max_issues is not None and count >= max_issues:
+                            logger.info(f"Reached maximum issue limit: {max_issues}")
+                            break
 
-                    # Check time limit before processing to avoid unnecessary API calls
-                    if (
-                        since_timestamp is not None
-                        and issue.created_at < since_timestamp
-                    ):
-                        logger.info(
-                            f"Reached time limit: issue created at {issue.created_at} is older than {since_timestamp}"
-                        )
-                        break
+                        # Check time limit before processing to avoid unnecessary API calls
+                        if (
+                            since_timestamp is not None
+                            and issue.created_at < since_timestamp
+                        ):
+                            logger.info(
+                                f"Reached time limit: issue created at {issue.created_at} is older than {since_timestamp}"
+                            )
+                            break
 
-                    # Skip pull requests (they appear in issues endpoint)
-                    if issue.pull_request is None:
-                        try:
-                            converted_issue = self.converter.to_issue(issue)
-                            issues.append(converted_issue)
-                            count += 1
+                        # Skip pull requests (they appear in issues endpoint)
+                        if issue.pull_request is None:
+                            try:
+                                converted_issue = self.converter.to_issue(issue)
+                                issues.append(converted_issue)
+                                count += 1
+                                logger.debug(
+                                    f"Collected issue #{issue.number}: {issue.title[:50]}..."
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to convert issue #{issue.number}: {e}"
+                                )
+                        else:
                             logger.debug(
-                                f"Collected issue #{issue.number}: {issue.title[:50]}..."
+                                f"Skipping PR #{issue.number} (appears in issues endpoint)"
                             )
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to convert issue #{issue.number}: {e}"
-                            )
-                    else:
-                        logger.debug(
-                            f"Skipping PR #{issue.number} (appears in issues endpoint)"
-                        )
 
                 elapsed = time.time() - start_time
                 logger.info(
@@ -287,14 +279,13 @@ class GitHubDataCollector:
         return await self._run_in_executor(_fetch_issues)
 
     async def get_pull_requests(
-        self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
+        self, repo_name: str
     ) -> List[PullRequest]:
         """
-        Get repository pull requests with comprehensive progress tracking
+        Get repository pull requests
 
         Args:
             repo_name: Repository name in format 'owner/repo'
-            progress_tracker: Optional progress tracker for detailed progress reporting
         """
         logger.info(f"Starting pull request collection for repository: {repo_name}")
 
@@ -337,43 +328,44 @@ class GitHubDataCollector:
                 if effective_limit == float("inf"):
                     effective_limit = None
 
-                # Create progress bar with tqdm
+                # Create progress bar with progress manager
                 pr_desc = f"PRs from {repo_name}"
-                prs_iter = tqdm(
-                    pulls_paginated,
-                    desc=pr_desc,
+                
+                with progress_manager.create_sub_progress(
                     total=effective_limit,
-                    disable=not TQDM_AVAILABLE,
+                    desc=pr_desc,
                     unit="PRs",
-                    leave=False,
-                )
+                    parent_id="prs"
+                ) as prs_progress:
 
-                # Convert pull requests to model objects
-                for pr in prs_iter:
-                    page_count += 1
+                    # Convert pull requests to model objects
+                    for pr in pulls_paginated:
+                        page_count += 1
+                        prs_progress.update(1)
 
-                    # Check max limit
-                    if max_prs is not None and count >= max_prs:
-                        logger.info(f"Reached maximum PR limit: {max_prs}")
-                        break
+                        # Check max limit
+                        if max_prs is not None and count >= max_prs:
+                            logger.info(f"Reached maximum PR limit: {max_prs}")
+                            break
 
-                    # Check time limit
-                    if since_timestamp is not None and pr.created_at < since_timestamp:
-                        logger.info(
-                            f"Reached time limit: PR created at {pr.created_at} is older than {since_timestamp}"
-                        )
-                        break
+                        # Check time limit
+                        if since_timestamp is not None and pr.created_at < since_timestamp:
+                            logger.info(
+                                f"Reached time limit: PR created at {pr.created_at} is older than {since_timestamp}"
+                            )
+                            break
 
-                    try:
-                        converted_pr = self.converter.to_pull_request(pr)
-                        pull_requests.append(converted_pr)
-                        count += 1
-                        logger.debug(
-                            f"Collected PR #{pr.number}: {pr.title[:50]}... "
-                            f"(state: {pr.state}, merged: {pr.merged})"
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to convert PR #{pr.number}: {e}")
+                        try:
+                            converted_pr = self.converter.to_pull_request(pr)
+                            pull_requests.append(converted_pr)
+                            count += 1
+                            logger.debug(
+                                f"Collected PR #{pr.number}: {pr.title[:50]}... "
+                                f"(state: {pr.state}, merged: {pr.merged})"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to convert PR #{pr.number}: {e}")
+
 
                 elapsed = time.time() - start_time
                 logger.info(
@@ -403,14 +395,13 @@ class GitHubDataCollector:
         return await self._run_in_executor(_fetch_pull_requests)
 
     async def get_events(
-        self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
+        self, repo_name: str
     ) -> List[GithubEvent]:
         """
         Get repository events with comprehensive progress tracking and logging
 
         Args:
             repo_name: Repository name in format 'owner/repo'
-            progress_tracker: Optional progress tracker for detailed progress reporting
 
         Returns:
             List[GithubEvent]: List of repository events (excluding WatchEvent, ForkEvent, SponsorshipEvent)
@@ -455,50 +446,50 @@ class GitHubDataCollector:
                 if effective_limit == float("inf"):
                     effective_limit = None
 
-                # Create progress bar with tqdm
+                # Create progress bar with progress manager
                 events_desc = f"Events from {repo_name}"
-                events_iter = tqdm(
-                    events_paginated,
-                    desc=events_desc,
+                
+                with progress_manager.create_sub_progress(
                     total=effective_limit,
-                    disable=not TQDM_AVAILABLE,
+                    desc=events_desc,
                     unit="events",
-                    leave=False,
-                )
+                    parent_id="events"
+                ) as events_progress:
 
-                # Iterate through all events across all pages
-                for event in events_iter:
-                    page_count += 1
+                    # Iterate through all events across all pages
+                    for event in events_paginated:
+                        page_count += 1
+                        events_progress.update(1)
 
-                    # Check max limit
-                    if max_events is not None and count >= max_events:
-                        logger.info(f"Reached maximum event limit: {max_events}")
-                        break
+                        # Check max limit
+                        if max_events is not None and count >= max_events:
+                            logger.info(f"Reached maximum event limit: {max_events}")
+                            break
 
-                    # Check time limit before processing to avoid unnecessary API calls
-                    if (
-                        since_timestamp is not None
-                        and event.created_at < since_timestamp
-                    ):
-                        logger.info(
-                            f"Reached time limit: event created at {event.created_at} is older than {since_timestamp}"
-                        )
-                        break
-
-                    # Convert event and filter out unwanted types
-                    try:
-                        converted_event = self.converter.to_github_event(event)
-                        if converted_event:
-                            events.append(converted_event)
-                            count += 1
-                            logger.debug(
-                                f"Collected event: {event.type} by {event.actor.login if event.actor else 'unknown'}"
+                        # Check time limit before processing to avoid unnecessary API calls
+                        if (
+                            since_timestamp is not None
+                            and event.created_at < since_timestamp
+                        ):
+                            logger.info(
+                                f"Reached time limit: event created at {event.created_at} is older than {since_timestamp}"
                             )
-                        else:
-                            filtered_count += 1
-                            logger.debug(f"Filtered out event: {event.type}")
-                    except Exception as e:
-                        logger.warning(f"Failed to convert event {event.type}: {e}")
+                            break
+
+                        # Convert event and filter out unwanted types
+                        try:
+                            converted_event = self.converter.to_github_event(event)
+                            if converted_event:
+                                events.append(converted_event)
+                                count += 1
+                                logger.debug(
+                                    f"Collected event: {event.type} by {event.actor.login if event.actor else 'unknown'}"
+                                )
+                            else:
+                                filtered_count += 1
+                                logger.debug(f"Filtered out event: {event.type}")
+                        except Exception as e:
+                            logger.warning(f"Failed to convert event {event.type}: {e}")
 
                 elapsed = time.time() - start_time
                 logger.info(
@@ -589,7 +580,6 @@ class GitHubDataCollector:
         self,
         repo_name: str,
         local_repo_path: Path,
-        progress_tracker: Optional[ProgressTracker] = None,
     ) -> List[Workflow]:
         """Get GitHub Actions workflows with comprehensive progress tracking"""
         logger.info(f"Starting workflow collection for repository: {repo_name}")
@@ -620,57 +610,59 @@ class GitHubDataCollector:
                     total_workflows = None
                     logger.debug("Could not determine total workflow count")
 
-                # Create progress bar with tqdm
+                # Create progress bar with progress manager
                 workflows_desc = f"Workflows from {repo_name}"
-                workflows_iter = tqdm(
-                    workflows_paginated,
-                    desc=workflows_desc,
+                
+                with progress_manager.create_sub_progress(
                     total=total_workflows,
-                    disable=not TQDM_AVAILABLE,
+                    desc=workflows_desc,
                     unit="workflows",
-                    leave=False,
-                )
+                    parent_id="workflows"
+                ) as workflows_progress:
 
-                for workflow in workflows_iter:
-                    # Check max limit
-                    if max_workflows is not None and count >= max_workflows:
-                        logger.info(f"Reached maximum workflow limit: {max_workflows}")
-                        break
+                    for workflow in workflows_paginated:
+                        workflows_progress.update(1)
+                        
+                        # Check max limit
+                        if max_workflows is not None and count >= max_workflows:
+                            logger.info(f"Reached maximum workflow limit: {max_workflows}")
+                            break
 
-                    logger.debug(
-                        f"Processing workflow: {workflow.name} (path: {workflow.path})"
-                    )
-
-                    # Read workflow file from local repository
-                    file_path = local_repo_path / workflow.path
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            content = f.read()
                         logger.debug(
-                            f"Successfully read workflow file: {file_path} ({len(content)} chars)"
+                            f"Processing workflow: {workflow.name} (path: {workflow.path})"
                         )
-                    except FileNotFoundError:
-                        file_read_errors += 1
-                        content = "Not from a file in repo"
-                        logger.warning(f"Workflow file not found locally: {file_path}")
-                    except Exception as e:
-                        file_read_errors += 1
-                        content = f"Error reading file: {e}"
-                        logger.warning(f"Error reading workflow file {file_path}: {e}")
 
-                    try:
-                        workflow_obj = Workflow(
-                            name=workflow.name, content=content, path=workflow.path
-                        )
-                        workflows.append(workflow_obj)
-                        count += 1
-                        logger.debug(
-                            f"Successfully collected workflow: {workflow.name}"
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to create workflow object for {workflow.name}: {e}"
-                        )
+                        # Read workflow file from local repository
+                        file_path = local_repo_path / workflow.path
+                        try:
+                            with open(file_path, "r", encoding="utf-8") as f:
+                                content = f.read()
+                            logger.debug(
+                                f"Successfully read workflow file: {file_path} ({len(content)} chars)"
+                            )
+                        except FileNotFoundError:
+                            file_read_errors += 1
+                            content = "Not from a file in repo"
+                            logger.warning(f"Workflow file not found locally: {file_path}")
+                        except Exception as e:
+                            file_read_errors += 1
+                            content = f"Error reading file: {e}"
+                            logger.warning(f"Error reading workflow file {file_path}: {e}")
+
+                        try:
+                            workflow_obj = Workflow(
+                                name=workflow.name, content=content, path=workflow.path
+                            )
+                            workflows.append(workflow_obj)
+                            count += 1
+                            logger.debug(
+                                f"Successfully collected workflow: {workflow.name}"
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to create workflow object for {workflow.name}: {e}"
+                            )
+
 
                 elapsed = time.time() - start_time
                 logger.info(
@@ -700,7 +692,7 @@ class GitHubDataCollector:
         return await self._run_in_executor(_fetch_workflows)
 
     async def get_check_runs(
-        self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
+        self, repo_name: str
     ) -> List[CheckRun]:
         """Get check runs from recent commits and pull requests with comprehensive tracking"""
         logger.info(f"Starting check run collection for repository: {repo_name}")
@@ -769,28 +761,30 @@ class GitHubDataCollector:
                     commits_list = list(
                         repo.get_commits()[: self.settings.check_runs_commit_limit]
                     )
-                    commits_iter = tqdm(
-                        commits_list,
+                    
+                    with progress_manager.create_sub_progress(
+                        total=len(commits_list),
                         desc=f"Check runs from commits",
-                        disable=not TQDM_AVAILABLE,
                         unit="commits",
-                        leave=False,
-                    )
+                        parent_id="check_runs_commits"
+                    ) as commits_progress:
 
-                    for commit in commits_iter:
-                        commits_processed += 1
-                        should_break, added = add_check_run(commit)
+                        for commit in commits_list:
+                            commits_progress.update(1)
+                            commits_processed += 1
+                            should_break, added = add_check_run(commit)
 
-                        if should_break:
-                            logger.info(
-                                f"Reached max check runs limit from commits: {max_check_runs}"
-                            )
-                            break
+                            if should_break:
+                                logger.info(
+                                    f"Reached max check runs limit from commits: {max_check_runs}"
+                                )
+                                break
                 except Exception as e:
                     logger.warning(f"Error processing commits for check runs: {e}")
 
                 # Check pull requests if we haven't reached the limit
                 if max_check_runs is None or len(check_runs) < max_check_runs:
+                    
                     logger.debug(
                         f"Processing recent pull requests (limit: {self.settings.check_runs_pr_limit})"
                     )
@@ -802,50 +796,52 @@ class GitHubDataCollector:
                                 : self.settings.check_runs_pr_limit
                             ]
                         )
-                        prs_iter = tqdm(
-                            prs_list,
+                        
+                        with progress_manager.create_sub_progress(
+                            total=len(prs_list),
                             desc=f"Check runs from PRs",
-                            disable=not TQDM_AVAILABLE,
                             unit="PRs",
-                            leave=False,
-                        )
+                            parent_id="check_runs_prs"
+                        ) as prs_progress:
 
-                        for pull in prs_iter:
-                            prs_processed += 1
-                            pr_commits_processed = 0
+                            for pull in prs_list:
+                                prs_progress.update(1)
+                                prs_processed += 1
+                                pr_commits_processed = 0
 
-                            try:
-                                for commit in pull.get_commits():
-                                    pr_commits_processed += 1
-                                    should_break, added = add_check_run(commit)
-                                    if should_break:
-                                        logger.info(
-                                            f"Reached max check runs limit from PR #{pull.number}: {max_check_runs}"
-                                        )
-                                        break
+                                try:
+                                    for commit in pull.get_commits():
+                                        pr_commits_processed += 1
+                                        should_break, added = add_check_run(commit)
+                                        if should_break:
+                                            logger.info(
+                                                f"Reached max check runs limit from PR #{pull.number}: {max_check_runs}"
+                                            )
+                                            break
 
-                                logger.debug(
-                                    f"Processed PR #{pull.number} with {pr_commits_processed} commits"
-                                )
+                                    logger.debug(
+                                        f"Processed PR #{pull.number} with {pr_commits_processed} commits"
+                                    )
 
-                            except Exception as e:
-                                logger.warning(
-                                    f"Error processing commits for PR #{pull.number}: {e}"
-                                )
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Error processing commits for PR #{pull.number}: {e}"
+                                    )
 
-                            if (
-                                max_check_runs is not None
-                                and len(check_runs) >= max_check_runs
-                            ):
-                                logger.info(
-                                    f"Reached max check runs limit: {max_check_runs}"
-                                )
-                                break
+                                if (
+                                    max_check_runs is not None
+                                    and len(check_runs) >= max_check_runs
+                                ):
+                                    logger.info(
+                                        f"Reached max check runs limit: {max_check_runs}"
+                                    )
+                                    break
 
                     except Exception as e:
                         logger.warning(
                             f"Error processing pull requests for check runs: {e}"
                         )
+
 
                 elapsed = time.time() - start_time
                 check_run_list = list(map(lambda name: CheckRun(name=name), check_runs))

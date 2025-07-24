@@ -17,12 +17,13 @@ from dotenv import load_dotenv
 from ..repo_info import RepoInfo
 from ..settings import CollectorSettings
 from ...utils.file import get_data_dir
-from ...utils.progress import create_progress_tracker, ProgressContext, ProgressTracker
+from ...utils.progress_manager import get_progress_manager
 from .data_collectors import GitHubDataCollector
 from .utils import LocalRepoUtils
 
 load_dotenv()
-logger = logging.getLogger(__name__)
+progress_manager = get_progress_manager()
+logger = progress_manager.logger
 
 
 class GitHubRepoCollector:
@@ -56,7 +57,6 @@ class GitHubRepoCollector:
         repo_name: str,
         pkt_type: str = "debian",
         pkt_name: str = "",
-        progress_tracker: Optional[ProgressTracker] = None,
     ) -> RepoInfo:
         """
         Collect complete repository information and return as RepoInfo model
@@ -64,176 +64,66 @@ class GitHubRepoCollector:
         Args:
             repo_name: Repository name in format 'owner/repo'
             pkt_name: Package name (optional, defaults to repo name)
-            progress_tracker: Optional progress tracker for external tracking
 
         Returns:
             RepoInfo: Complete repository information
         """
-        # Create progress tracker if not provided
-        if progress_tracker is None:
-            progress_tracker = create_progress_tracker(
-                name=f"Collecting {repo_name}", show_progress=self.show_progress
-            )
-            show_summary = True
-        else:
-            show_summary = False
-
-        # Setup todos
-        progress_tracker.add_todos(
-            [
-                ("clone_repository", "Clone repository"),
-                ("get_basic_info", "Collect basic info"),
-                ("issues", "Collect issues"),
-                ("prs", "Collect pull requests"),
-                ("binary_files", "Find binary files"),
-                ("workflows", "Collect workflows"),
-                ("check_runs", "Collect check runs"),
-                ("finalize", "Finalize repository info"),
-            ]
-        )
-
         logger.info(f"Starting collection for repository: {repo_name}")
-
-        # Start organized display if showing progress
-        if self.show_progress:
-            from ...utils.display import (
-                start_organized_display,
-                stop_organized_display,
-                StepContext,
-                update_current_step,
-            )
-
-            start_organized_display()
 
         try:
             async with GitHubDataCollector(
                 self.executor, self.settings
             ) as data_collector:
                 # Initialize repository
-                with StepContext(f"Basic info: {repo_name}"):
-                    with ProgressContext(progress_tracker, "get_basic_info") as ctx:
-                        with ctx.step("get_basic_info", "Fetch repository metadata"):
-                            basic_info = await data_collector.get_basic_info(
-                                repo_name, progress_tracker
-                            )
+                logger.info(f"Getting basic info for {repo_name}")
+                basic_info = await data_collector.get_basic_info(repo_name)
 
                 # Clone repository
-                with StepContext(f"Cloning: {repo_name}"):
-                    with ProgressContext(progress_tracker, "clone_repository") as clone_ctx:
-                        with clone_ctx.step(
-                            "clone_repository", "Clone repository to local storage"
-                        ):
-                            data_dir = get_data_dir()
-                            local_repo_dir = await self.local_utils.clone_repository(
-                                repo_name,
-                                basic_info.clone_url,
-                                self.executor,
-                                progress_tracker,
-                            )
-                            local_repo_path = data_dir / local_repo_dir
-
-                async def collect_issues():
-                    max_issues = self.settings.get_max_issues()
-                    details = f"Max: {max_issues}" if max_issues else "Unlimited"
-                    with StepContext(f"Issues: {repo_name} ({details})"):
-                        with ProgressContext(progress_tracker, "issues") as ctx:
-                            with ctx.step(
-                                "fetch_issues", "Fetch issues from GitHub API", details
-                            ):
-                                return await data_collector.get_issues(
-                                    repo_name, progress_tracker
-                                )
-
-                async def collect_prs():
-                    max_prs = self.settings.get_max_pull_requests()
-                    details = f"Max: {max_prs}" if max_prs else "Unlimited"
-                    with StepContext(f"PRs: {repo_name} ({details})"):
-                        with ProgressContext(progress_tracker, "prs") as ctx:
-                            with ctx.step(
-                                "fetch_prs", "Fetch pull requests from GitHub API", details
-                            ):
-                                return await data_collector.get_pull_requests(
-                                    repo_name, progress_tracker
-                                )
-
-                async def collect_binary_files():
-                    with StepContext(f"Binary files: {repo_name}"):
-                        with ProgressContext(progress_tracker, "binary_files") as ctx:
-                            with ctx.step(
-                                "scan_files",
-                                "Scan local repository for binary files",
-                                f"Scanning {local_repo_path}",
-                            ):
-                                return await data_collector.find_binary_files_local(
-                                    local_repo_path
-                                )
-
-                async def collect_workflows():
-                    with StepContext(f"Workflows: {repo_name}"):
-                        with ProgressContext(progress_tracker, "workflows") as ctx:
-                            with ctx.step(
-                                "fetch_workflows", "Fetch GitHub Actions workflows"
-                            ):
-                                return await data_collector.get_workflows(
-                                    repo_name, local_repo_path, progress_tracker
-                                )
-
-                async def collect_check_runs():
-                    limit = self.settings.check_runs_commit_limit
-                    with StepContext(f"Check runs: {repo_name} (last {limit})"):
-                        with ProgressContext(progress_tracker, "check_runs") as ctx:
-                            with ctx.step(
-                                "fetch_check_runs",
-                                "Fetch check runs from recent commits",
-                                f"Last {limit} commits",
-                            ):
-                                return await data_collector.get_check_runs(
-                                    repo_name, progress_tracker
-                                )
+                logger.info(f"Cloning repository {repo_name}")
+                data_dir = get_data_dir()
+                local_repo_dir = await self.local_utils.clone_repository(
+                    repo_name,
+                    basic_info.clone_url,
+                    self.executor,
+                )
+                local_repo_path = data_dir / local_repo_dir
 
                 # Execute all collection tasks concurrently
-                with StepContext(f"Concurrent collection: {repo_name}"):
-                    (
-                        issues,
-                        pull_requests,
-                        binary_files,
-                        workflows,
-                        check_runs,
-                    ) = await asyncio.gather(
-                        collect_issues(),
-                        collect_prs(),
-                        collect_binary_files(),
-                        collect_workflows(),
-                        collect_check_runs(),
-                    )
+                logger.info(f"Starting concurrent collection for {repo_name}")
+                (
+                    issues,
+                    pull_requests,
+                    binary_files,
+                    workflows,
+                    check_runs,
+                ) = await asyncio.gather(
+                    data_collector.get_issues(repo_name),
+                    data_collector.get_pull_requests(repo_name),
+                    data_collector.find_binary_files_local(local_repo_path),
+                    data_collector.get_workflows(repo_name, local_repo_path),
+                    data_collector.get_check_runs(repo_name),
+                )
 
                 # Finalize repo info  
-                with StepContext(f"Finalizing: {repo_name}"):
-                    with ProgressContext(progress_tracker, "finalize") as final_ctx:
-                        with final_ctx.step("prepare_data", "Prepare collected data"):
-                            events = []  # events not used in current implementation
-                            commits = []  # commits not used to avoid large repo_info
+                logger.info(f"Finalizing repository info for {repo_name}")
+                events = []  # events not used in current implementation
+                commits = []  # commits not used to avoid large repo_info
 
-                        with final_ctx.step(
-                            "create_repoinfo",
-                            "Create final RepoInfo object",
-                            f"Combining data for {repo_name}",
-                        ):
-                            # Create RepoInfo model
-                            repo_info = RepoInfo(
-                                pkt_type=pkt_type,  # type: ignore
-                                pkt_name=pkt_name or repo_name.split("/")[-1],
-                                repo_id=repo_name.replace("/", "-"),
-                                basic_info=basic_info,
-                                commit_list=commits,
-                                pr_list=pull_requests,
-                                issue_list=issues,
-                                binary_file_list=binary_files,
-                                local_repo_dir=local_repo_dir,
-                                event_list=events,
-                                workflow_list=workflows,
-                                check_run_list=check_runs,
-                            )
+                # Create RepoInfo model
+                repo_info = RepoInfo(
+                    pkt_type=pkt_type,  # type: ignore
+                    pkt_name=pkt_name or repo_name.split("/")[-1],
+                    repo_id=repo_name.replace("/", "-"),
+                    basic_info=basic_info,
+                    commit_list=commits,
+                    pr_list=pull_requests,
+                    issue_list=issues,
+                    binary_file_list=binary_files,
+                    local_repo_dir=local_repo_dir,
+                    event_list=events,
+                    workflow_list=workflows,
+                    check_run_list=check_runs,
+                )
 
             logger.info(f"Successfully collected repo info for {repo_name}")
             logger.info(f"  - Issues: {len(issues)}")
@@ -246,16 +136,10 @@ class GitHubRepoCollector:
             if local_repo_dir:
                 logger.info(f"  - Local Repository: {local_repo_dir}")
 
-                if show_summary:
-                    progress_tracker.print_summary()
-
-                with StepContext(f"Completed: {repo_name}"):
-                    return repo_info
+            return repo_info
 
         finally:
-            # Always stop organized display
-            if self.show_progress:
-                stop_organized_display()
+            pass
 
     async def collect_multiple_repos(
         self, repo_names: List[str], max_concurrent: int = 3, **kwargs
@@ -271,64 +155,24 @@ class GitHubRepoCollector:
         Returns:
             List[RepoInfo]: List of repository information
         """
-        # Create master progress tracker
-        master_tracker = create_progress_tracker(
-            name=f"Collecting {len(repo_names)} repositories",
-            show_progress=self.show_progress,
-        )
-
-        # Add todos for each repository
-        todos = [
-            (f"repo_{i}", f"Collect {repo_name}")
-            for i, repo_name in enumerate(repo_names)
-        ]
-        master_tracker.add_todos(todos)
-
         semaphore = asyncio.Semaphore(max_concurrent)
         repo_infos = []
 
-        async def collect_single_repo(i: int, repo_name: str) -> Optional[RepoInfo]:
+        async def collect_single_repo(repo_name: str) -> Optional[RepoInfo]:
             async with semaphore:
-                todo_id = f"repo_{i}"
                 try:
-                    with ProgressContext(master_tracker, todo_id):
-                        # Create sub-tracker for this repository
-                        sub_tracker = create_progress_tracker(
-                            name=f"{repo_name}",
-                            show_progress=False,  # Don't show sub-progress for multiple repos
-                        )
-                        return await self.collect_repo_info(
-                            repo_name, progress_tracker=sub_tracker, **kwargs
-                        )
+                    return await self.collect_repo_info(repo_name, **kwargs)
                 except Exception as e:
                     logger.error(f"Failed to collect info for {repo_name}: {e}")
                     return None
 
         logger.info(f"Starting collection for {len(repo_names)} repositories")
 
-        # Use tqdm for overall progress if available
-        if self.show_progress:
-            progress_bar = master_tracker.create_progress_bar(
-                len(repo_names), desc="Collecting repositories"
-            )
-        else:
-            progress_bar = None
-
         # Process repositories with controlled concurrency
-        tasks = []
-        for i, repo_name in enumerate(repo_names):
-            task = asyncio.create_task(collect_single_repo(i, repo_name))
-            tasks.append(task)
-
-            # Update progress as tasks complete
-            if progress_bar:
-
-                async def update_progress(task):
-                    result = await task
-                    progress_bar.update(1)
-                    return result
-
-                tasks[-1] = asyncio.create_task(update_progress(task))
+        tasks = [
+            asyncio.create_task(collect_single_repo(repo_name))
+            for repo_name in repo_names
+        ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -339,7 +183,6 @@ class GitHubRepoCollector:
             f"Successfully collected info for {len(repo_infos)}/{len(repo_names)} repositories"
         )
 
-        master_tracker.print_summary()
         return repo_infos
 
 
@@ -366,7 +209,7 @@ async def collect_github_repo_info(
         RepoInfo: Repository information
     """
     collector = GitHubRepoCollector(settings, show_progress)
-    return await collector.collect_repo_info(repo_name, pkt_type, pkt_name, **kwargs)
+    return await collector.collect_repo_info(repo_name, pkt_type, pkt_name)
 
 
 # Convenience function for multiple repositories collection
@@ -389,4 +232,4 @@ async def collect_multiple_github_repos(
         List[RepoInfo]: List of repository information
     """
     collector = GitHubRepoCollector(settings, show_progress)
-    return await collector.collect_multiple_repos(repo_names, **kwargs)
+    return await collector.collect_multiple_repos(repo_names)
