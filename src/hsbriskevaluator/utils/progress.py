@@ -12,6 +12,8 @@ from typing import List, Dict, Optional, Any, Callable, Awaitable
 from dataclasses import dataclass, field
 from enum import Enum
 import logging
+import threading
+from contextlib import contextmanager
 
 # Try to import tqdm, fall back gracefully if not available
 try:
@@ -48,6 +50,124 @@ except ImportError:
     
     class atqdm(tqdm):
         pass
+
+
+class TqdmLoggingHandler(logging.Handler):
+    """
+    Logging handler that works with tqdm progress bars.
+    
+    This handler ensures that log messages don't interfere with progress bars
+    by using tqdm.write() when tqdm is available.
+    """
+    
+    def __init__(self, level=logging.NOTSET):
+        super().__init__(level)
+        self.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        ))
+    
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            if TQDM_AVAILABLE:
+                # Use tqdm.write to avoid interfering with progress bars
+                tqdm.write(msg)
+            else:
+                # Fall back to regular print
+                print(msg)
+        except Exception:
+            self.handleError(record)
+
+
+class ProgressLoggingContext:
+    """
+    Context manager that temporarily redirects logging to be compatible with progress bars.
+    """
+    
+    _lock = threading.Lock()
+    _original_handlers = None
+    _tqdm_handler = None
+    _context_count = 0
+    
+    def __init__(self):
+        self.entered = False
+    
+    def __enter__(self):
+        with self._lock:
+            self.__class__._context_count += 1
+            if self.__class__._context_count == 1:
+                # First context entry - setup tqdm logging
+                self._setup_tqdm_logging()
+            self.entered = True
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.entered:
+            with self._lock:
+                self.__class__._context_count -= 1
+                if self.__class__._context_count == 0:
+                    # Last context exit - restore original logging
+                    self._restore_original_logging()
+                self.entered = False
+    
+    @classmethod
+    def _setup_tqdm_logging(cls):
+        """Setup tqdm-compatible logging for all loggers"""
+        if not TQDM_AVAILABLE:
+            return  # No need to change logging if tqdm is not available
+            
+        # Get the root logger
+        root_logger = logging.getLogger()
+        
+        # Store original handlers
+        cls._original_handlers = root_logger.handlers.copy()
+        
+        # Create and add tqdm handler
+        cls._tqdm_handler = TqdmLoggingHandler()
+        cls._tqdm_handler.setLevel(logging.INFO)
+        
+        # Replace all handlers with our tqdm handler
+        root_logger.handlers.clear()
+        root_logger.addHandler(cls._tqdm_handler)
+        
+        # Also handle specific loggers that might be used in the collector
+        for logger_name in ['hsbriskevaluator', 'github', 'urllib3']:
+            logger = logging.getLogger(logger_name)
+            logger.handlers.clear()
+            logger.addHandler(cls._tqdm_handler)
+            logger.propagate = True
+    
+    @classmethod
+    def _restore_original_logging(cls):
+        """Restore original logging configuration"""
+        if cls._original_handlers is not None:
+            # Get the root logger
+            root_logger = logging.getLogger()
+            
+            # Remove our handler
+            if cls._tqdm_handler in root_logger.handlers:
+                root_logger.removeHandler(cls._tqdm_handler)
+            
+            # Restore original handlers
+            root_logger.handlers.clear()
+            root_logger.handlers.extend(cls._original_handlers)
+            
+            # Restore specific loggers
+            for logger_name in ['hsbriskevaluator', 'github', 'urllib3']:
+                logger = logging.getLogger(logger_name)
+                logger.handlers.clear()
+                logger.propagate = True
+            
+            # Clean up
+            cls._original_handlers = None
+            cls._tqdm_handler = None
+
+
+@contextmanager
+def progress_logging():
+    """Context manager for tqdm-compatible logging"""
+    with ProgressLoggingContext():
+        yield
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +244,12 @@ class ProgressTracker:
         self.todo_order: List[str] = []
         self._current_todo: Optional[str] = None
         self._progress_bar: Optional[tqdm] = None
+        self._logging_context: Optional[ProgressLoggingContext] = None
+        
+        # Setup logging context if progress is enabled
+        if self.show_progress:
+            self._logging_context = ProgressLoggingContext()
+            self._logging_context.__enter__()
         
     def add_todo(self, todo_id: str, description: str) -> TodoItem:
         """Add a new todo item"""
@@ -199,6 +325,15 @@ class ProgressTracker:
         
         return atqdm(total=total, desc=desc, leave=False, **kwargs)
         
+    def cleanup(self):
+        """Clean up logging context"""
+        if self._logging_context:
+            try:
+                self._logging_context.__exit__(None, None, None)
+                self._logging_context = None
+            except Exception:
+                pass  # Ignore cleanup errors
+    
     def _update_display(self):
         """Update the todo display"""
         if not self.show_progress:
@@ -214,11 +349,15 @@ class ProgressTracker:
         
         todo_line = " ".join(todo_parts)
         
-        # Print the status line (overwrite previous line if possible)
-        if hasattr(sys.stdout, 'isatty') and sys.stdout.isatty():
-            print(f"\r{self.name}: {todo_line}", end="", flush=True)
+        # Use tqdm.write if available and inside logging context, otherwise print normally
+        if TQDM_AVAILABLE and self._logging_context:
+            tqdm.write(f"{self.name}: {todo_line}")
         else:
-            print(f"{self.name}: {todo_line}")
+            # Print the status line (overwrite previous line if possible)
+            if hasattr(sys.stdout, 'isatty') and sys.stdout.isatty():
+                print(f"\r{self.name}: {todo_line}", end="", flush=True)
+            else:
+                print(f"{self.name}: {todo_line}")
             
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of all todos"""
@@ -238,24 +377,33 @@ class ProgressTracker:
         """Print a final summary"""
         summary = self.get_summary()
         
-        print(f"\n{self.name} Summary:")
-        print(f"  Total: {summary['total']}")
-        print(f"  ✅ Completed: {summary['completed']}")
+        # Choose the appropriate print function
+        if TQDM_AVAILABLE and self._logging_context:
+            write_func = tqdm.write
+        else:
+            write_func = print
+        
+        write_func(f"\n{self.name} Summary:")
+        write_func(f"  Total: {summary['total']}")
+        write_func(f"  ✅ Completed: {summary['completed']}")
         if summary['failed'] > 0:
-            print(f"  ❌ Failed: {summary['failed']}")
+            write_func(f"  ❌ Failed: {summary['failed']}")
         if summary['skipped'] > 0:
-            print(f"  ⏭️ Skipped: {summary['skipped']}")
+            write_func(f"  ⏭️ Skipped: {summary['skipped']}")
         if summary['total_duration']:
-            print(f"  ⏱️ Total Duration: {summary['total_duration']:.2f}s")
+            write_func(f"  ⏱️ Total Duration: {summary['total_duration']:.2f}s")
             
         # Print failed todos with errors
         failed_todos = [t for t in self.todos.values() if t.status == TodoStatus.FAILED]
         if failed_todos:
-            print("\nFailed Tasks:")
+            write_func("\nFailed Tasks:")
             for todo in failed_todos:
-                print(f"  ❌ {todo.description}")
+                write_func(f"  ❌ {todo.description}")
                 if todo.error:
-                    print(f"     Error: {todo.error}")
+                    write_func(f"     Error: {todo.error}")
+        
+        # Clean up logging context after printing summary
+        self.cleanup()
 
 
 class ProgressContext:
@@ -281,7 +429,7 @@ class ProgressContext:
 
 
 def create_progress_tracker(name: str = "Progress", show_progress: bool = True) -> ProgressTracker:
-    """Create a new progress tracker"""
+    """Create a new progress tracker with automatic logging management"""
     return ProgressTracker(name=name, show_progress=show_progress)
 
 

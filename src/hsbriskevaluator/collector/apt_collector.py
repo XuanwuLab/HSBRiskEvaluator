@@ -14,9 +14,8 @@ from hsbriskevaluator.collector.settings import CollectorSettings
 from hsbriskevaluator.utils.apt_utils import AptUtils
 from hsbriskevaluator.utils.progress import create_progress_tracker, ProgressContext, ProgressTracker
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+# Remove logging.basicConfig to avoid conflicts with progress tracking
+# The progress system handles logging configuration automatically
 logger = logging.getLogger(__name__)
 
 
