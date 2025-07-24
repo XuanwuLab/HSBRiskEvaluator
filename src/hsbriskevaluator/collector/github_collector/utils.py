@@ -25,10 +25,11 @@ logger = logging.getLogger(__name__)
 
 class LocalRepoUtils:
     """Utility class for local repository operations"""
-    
+
     def __init__(self, settings: Optional["CollectorSettings"] = None):
         if settings is None:
             from ..settings import CollectorSettings
+
             settings = CollectorSettings()
         self.settings = settings
 
@@ -39,8 +40,11 @@ class LocalRepoUtils:
         return await loop.run_in_executor(executor, func, *args)
 
     async def clone_repository(
-        self, repo_name: str, repo_url: str, executor: ThreadPoolExecutor, 
-        progress_tracker: Optional[ProgressTracker] = None
+        self,
+        repo_name: str,
+        repo_url: str,
+        executor: ThreadPoolExecutor,
+        progress_tracker: Optional[ProgressTracker] = None,
     ) -> str:
         """
         Clone repository to local data directory with detailed progress tracking
@@ -60,62 +64,101 @@ class LocalRepoUtils:
             try:
                 # Step 1: Setup paths
                 if progress_tracker:
-                    step = progress_tracker.add_step("clone_repository", "setup_paths", "Setup clone directories", f"Target: {repo_name}")
+                    step = progress_tracker.add_step(
+                        "clone_repository",
+                        "setup_paths",
+                        "Setup clone directories",
+                        f"Target: {repo_name}",
+                    )
 
                 data_dir = get_data_dir()
                 repo_dir_name = repo_name.replace("/", "-")
                 local_repo_path = data_dir / repo_dir_name
-                
+
                 if progress_tracker:
-                    progress_tracker.complete_step("clone_repository", "setup_paths", f"Path: {local_repo_path}")
+                    progress_tracker.complete_step(
+                        "clone_repository", "setup_paths", f"Path: {local_repo_path}"
+                    )
 
                 # Step 2: Clean existing directory
                 if local_repo_path.exists():
                     if progress_tracker:
-                        step = progress_tracker.add_step("clone_repository", "cleanup_existing", "Remove existing clone", f"Removing {local_repo_path}")
+                        step = progress_tracker.add_step(
+                            "clone_repository",
+                            "cleanup_existing",
+                            "Remove existing clone",
+                            f"Removing {local_repo_path}",
+                        )
 
                     import shutil
+
                     shutil.rmtree(local_repo_path)
-                    
+
                     if progress_tracker:
-                        progress_tracker.complete_step("clone_repository", "cleanup_existing", "✓ Removed existing directory")
+                        progress_tracker.complete_step(
+                            "clone_repository",
+                            "cleanup_existing",
+                            "✓ Removed existing directory",
+                        )
 
                 # Step 3: Execute git clone
                 if progress_tracker:
-                    step = progress_tracker.add_step("clone_repository", "git_clone_exec", "Execute git clone command", f"Timeout: {settings.git_clone_timeout_seconds}s")
+                    step = progress_tracker.add_step(
+                        "clone_repository",
+                        "git_clone_exec",
+                        "Execute git clone command",
+                        f"Timeout: {settings.git_clone_timeout_seconds}s",
+                    )
 
                 cmd = ["git", "clone", repo_url, str(local_repo_path)]
                 logger.info(f"Executing git clone: {' '.join(cmd)}")
-                
+
                 start_time = time.time()
                 result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=settings.git_clone_timeout_seconds
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=settings.git_clone_timeout_seconds,
                 )
                 clone_duration = time.time() - start_time
 
                 if result.returncode == 0:
-                    logger.info(f"Successfully cloned {repo_name} to {local_repo_path} in {clone_duration:.2f}s")
+                    logger.info(
+                        f"Successfully cloned {repo_name} to {local_repo_path} in {clone_duration:.2f}s"
+                    )
                     if progress_tracker:
-                        progress_tracker.complete_step("clone_repository", "git_clone_exec", f"✓ Cloned in {clone_duration:.2f}s")
+                        progress_tracker.complete_step(
+                            "clone_repository",
+                            "git_clone_exec",
+                            f"✓ Cloned in {clone_duration:.2f}s",
+                        )
                     return repo_dir_name  # Return relative path
                 else:
                     error_msg = f"Git clone failed: {result.stderr}"
                     logger.error(f"Failed to clone {repo_name}: {result.stderr}")
                     if progress_tracker:
-                        progress_tracker.complete_step("clone_repository", "git_clone_exec", f"❌ {error_msg}")
+                        progress_tracker.complete_step(
+                            "clone_repository", "git_clone_exec", f"❌ {error_msg}"
+                        )
                     return None
 
             except subprocess.TimeoutExpired:
                 error_msg = f"Clone timeout after {settings.git_clone_timeout_seconds}s"
                 logger.error(f"Timeout cloning repository {repo_name}")
                 if progress_tracker:
-                    progress_tracker.complete_step("clone_repository", "git_clone_exec", f"❌ {error_msg}")
-                raise TimeoutError(f"Cloning {repo_name} took too long and was aborted.")
+                    progress_tracker.complete_step(
+                        "clone_repository", "git_clone_exec", f"❌ {error_msg}"
+                    )
+                raise TimeoutError(
+                    f"Cloning {repo_name} took too long and was aborted."
+                )
             except Exception as e:
                 error_msg = f"Clone error: {str(e)}"
                 logger.error(f"Error cloning repository {repo_name}: {str(e)}")
                 if progress_tracker:
-                    progress_tracker.complete_step("clone_repository", "git_clone_exec", f"❌ {error_msg}")
+                    progress_tracker.complete_step(
+                        "clone_repository", "git_clone_exec", f"❌ {error_msg}"
+                    )
                 raise e
 
         return await self._run_in_executor(executor, _clone_repo)
@@ -193,9 +236,10 @@ class LocalRepoUtils:
             since_timestamp = None
             if since_time:
                 from datetime import timezone
+
                 since_timestamp = datetime.now(tz=timezone.utc) - since_time
             count = 0
-            
+
             try:
                 # Open the local repository
                 repo = Repo(local_repo_path)
@@ -212,7 +256,7 @@ class LocalRepoUtils:
                     # Check max limit
                     if max_commits is not None and count >= max_commits:
                         break
-                        
+
                     # Filter commits by timestamp if specified
                     commit_date = datetime.fromtimestamp(commit.committed_date)
                     if since_timestamp and commit_date < since_timestamp:

@@ -32,7 +32,9 @@ class DiffResult(BaseModel):
 class Comparator:
     def __init__(
         self,
-        github_collector: GitHubDataCollector = GitHubDataCollector(ThreadPoolExecutor(max_workers=1)),
+        github_collector: GitHubDataCollector = GitHubDataCollector(
+            ThreadPoolExecutor(max_workers=1)
+        ),
         apt_utils: AptUtils = AptUtils(),
     ):
         self.github_collector = github_collector
@@ -81,8 +83,8 @@ class Comparator:
 
     def clone_and_compare(self, package: str) -> DiffResult:
         debian_url = self.apt_utils.get_package_git(package)
-        #github_path = self._clone_repo(github_url, f"{package}/github")
-        #debian_path = self._clone_repo(debian_url, f"{package}/debian")
+        # github_path = self._clone_repo(github_url, f"{package}/github")
+        # debian_path = self._clone_repo(debian_url, f"{package}/debian")
         try:
             github_url = self.github_collector.search_repo(package).clone_url
             return DiffResult(
@@ -101,4 +103,4 @@ class Comparator:
                 url2="",
                 dir1="",
                 dir2="",
-                )
+            )

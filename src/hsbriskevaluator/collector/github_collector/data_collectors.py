@@ -32,17 +32,12 @@ from .utils import LocalRepoUtils
 from ...utils.progress import ProgressTracker, ProgressContext
 from functools import lru_cache
 
-try:
-    from tqdm import tqdm
-
-    TQDM_AVAILABLE = True
-except ImportError:
-    TQDM_AVAILABLE = False
-
-    # Fallback for when tqdm is not available
-    def tqdm(iterable, *args, **kwargs):
-        return iterable
-
+from ...utils.display import (
+    organized_tqdm as tqdm,
+    TQDM_AVAILABLE,
+    StepContext,
+    update_current_step,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +84,7 @@ class GitHubDataCollector:
             )
             self.token_manager.rotate_token()
             token_status = self.token_manager.get_token_stats()
-            time.sleep(60)  
+            time.sleep(60)
 
         return self.token_manager.get_github_client()
 
@@ -130,37 +125,41 @@ class GitHubDataCollector:
         self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None
     ) -> BasicInfo:
         """Get basic repository information with progress tracking"""
-        logger.info(f"Collecting basic info for repository: {repo_name}")
+        with StepContext(f"Getting basic info for {repo_name}"):
+            logger.info(f"Collecting basic info for repository: {repo_name}")
 
-        start_time = time.time()
-        try:
-            repo = self._get_repository(repo_name)
-            basic_info = BasicInfo(
-                description=repo.description or "",
-                stargazers_count=repo.stargazers_count,
-                watchers_count=repo.watchers_count,
-                forks_count=repo.forks_count,
-                html_url=repo.html_url or "",
-                clone_url=repo.clone_url or "",
-            )
+            start_time = time.time()
+            try:
+                update_current_step(f"Fetching repository: {repo_name}")
+                repo = self._get_repository(repo_name)
 
-            elapsed = time.time() - start_time
-            logger.info(
-                f"Successfully collected basic info for {repo_name} in {elapsed:.2f}s"
-            )
-            logger.debug(
-                f"Basic info: stars={basic_info.stargazers_count}, "
-                f"watchers={basic_info.watchers_count}, forks={basic_info.forks_count}"
-            )
+                update_current_step(f"Reading repo metadata: {repo_name}")
+                basic_info = BasicInfo(
+                    description=repo.description or "",
+                    stargazers_count=repo.stargazers_count,
+                    watchers_count=repo.watchers_count,
+                    forks_count=repo.forks_count,
+                    html_url=repo.html_url or "",
+                    clone_url=repo.clone_url or "",
+                )
 
-            return basic_info
+                elapsed = time.time() - start_time
+                logger.info(
+                    f"Successfully collected basic info for {repo_name} in {elapsed:.2f}s"
+                )
+                logger.debug(
+                    f"Basic info: stars={basic_info.stargazers_count}, "
+                    f"watchers={basic_info.watchers_count}, forks={basic_info.forks_count}"
+                )
 
-        except Exception as e:
-            elapsed = time.time() - start_time
-            logger.error(
-                f"Failed to collect basic info for {repo_name} after {elapsed:.2f}s: {e}"
-            )
-            raise
+                return basic_info
+
+            except Exception as e:
+                elapsed = time.time() - start_time
+                logger.error(
+                    f"Failed to collect basic info for {repo_name} after {elapsed:.2f}s: {e}"
+                )
+                raise
 
     async def get_issues(
         self, repo_name: str, progress_tracker: Optional[ProgressTracker] = None

@@ -18,20 +18,22 @@ from contextlib import contextmanager
 # Try to import tqdm, fall back gracefully if not available
 from tqdm import tqdm
 from tqdm.asyncio import tqdm as atqdm
+
+
 class TqdmLoggingHandler(logging.Handler):
     """
     Logging handler that works with tqdm progress bars.
-    
+
     This handler ensures that log messages don't interfere with progress bars
     by using tqdm.write() when tqdm is available.
     """
-    
+
     def __init__(self, level=logging.NOTSET):
         super().__init__(level)
-        self.setFormatter(logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        ))
-    
+        self.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
+
     def emit(self, record):
         try:
             msg = self.format(record)
@@ -45,15 +47,15 @@ class ProgressLoggingContext:
     """
     Context manager that temporarily redirects logging to be compatible with progress bars.
     """
-    
+
     _lock = threading.Lock()
     _original_handlers = None
     _tqdm_handler = None
     _context_count = 0
-    
+
     def __init__(self):
         self.entered = False
-    
+
     def __enter__(self):
         with self._lock:
             self.__class__._context_count += 1
@@ -62,7 +64,7 @@ class ProgressLoggingContext:
                 self._setup_tqdm_logging()
             self.entered = True
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.entered:
             with self._lock:
@@ -71,53 +73,53 @@ class ProgressLoggingContext:
                     # Last context exit - restore original logging
                     self._restore_original_logging()
                 self.entered = False
-    
+
     @classmethod
     def _setup_tqdm_logging(cls):
         """Setup tqdm-compatible logging for all loggers"""
-            
+
         # Get the root logger
         root_logger = logging.getLogger()
-        
+
         # Store original handlers
         cls._original_handlers = root_logger.handlers.copy()
-        
+
         # Create and add tqdm handler
         cls._tqdm_handler = TqdmLoggingHandler()
         cls._tqdm_handler.setLevel(logging.INFO)
-        
+
         # Replace all handlers with our tqdm handler
         root_logger.handlers.clear()
         root_logger.addHandler(cls._tqdm_handler)
-        
+
         # Also handle specific loggers that might be used in the collector
-        for logger_name in ['hsbriskevaluator', 'github', 'urllib3']:
+        for logger_name in ["hsbriskevaluator", "github", "urllib3"]:
             logger = logging.getLogger(logger_name)
             logger.handlers.clear()
             # Don't add handler to specific loggers, let them propagate to root
             logger.propagate = True
-    
+
     @classmethod
     def _restore_original_logging(cls):
         """Restore original logging configuration"""
         if cls._original_handlers is not None:
             # Get the root logger
             root_logger = logging.getLogger()
-            
+
             # Remove our handler
             if cls._tqdm_handler in root_logger.handlers:
                 root_logger.removeHandler(cls._tqdm_handler)
-            
+
             # Restore original handlers
             root_logger.handlers.clear()
             root_logger.handlers.extend(cls._original_handlers)
-            
+
             # Restore specific loggers
-            for logger_name in ['hsbriskevaluator', 'github', 'urllib3']:
+            for logger_name in ["hsbriskevaluator", "github", "urllib3"]:
                 logger = logging.getLogger(logger_name)
                 logger.handlers.clear()
                 logger.propagate = True
-            
+
             # Clean up
             cls._original_handlers = None
             cls._tqdm_handler = None
@@ -129,11 +131,13 @@ def progress_logging():
     with ProgressLoggingContext():
         yield
 
+
 logger = logging.getLogger(__name__)
 
 
 class TodoStatus(Enum):
     """Status of a todo item"""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -144,19 +148,20 @@ class TodoStatus(Enum):
 @dataclass
 class StepInfo:
     """Information about a detailed step within a todo"""
+
     name: str
     description: str
     start_time: float
     end_time: Optional[float] = None
     details: Optional[str] = None
-    
-    @property 
+
+    @property
     def duration(self) -> Optional[float]:
         """Get the duration of the step if completed"""
         if self.end_time:
             return self.end_time - self.start_time
         return None
-    
+
     @property
     def duration_str(self) -> str:
         """Get formatted duration string"""
@@ -168,6 +173,7 @@ class StepInfo:
 @dataclass
 class TodoItem:
     """A single todo item with status tracking and detailed steps"""
+
     id: str
     description: str
     status: TodoStatus = TodoStatus.PENDING
@@ -175,25 +181,24 @@ class TodoItem:
     end_time: Optional[float] = None
     error: Optional[str] = None
     steps: List[StepInfo] = field(default_factory=list)
-    
+
     @property
     def duration(self) -> Optional[float]:
         """Get the duration of the task if completed"""
         if self.start_time and self.end_time:
             return self.end_time - self.start_time
         return None
-    
-    def add_step(self, name: str, description: str, details: Optional[str] = None) -> StepInfo:
+
+    def add_step(
+        self, name: str, description: str, details: Optional[str] = None
+    ) -> StepInfo:
         """Add a new step to this todo"""
         step = StepInfo(
-            name=name, 
-            description=description, 
-            start_time=time.time(),
-            details=details
+            name=name, description=description, start_time=time.time(), details=details
         )
         self.steps.append(step)
         return step
-    
+
     def complete_step(self, step_name: str, details: Optional[str] = None):
         """Complete a step by name"""
         for step in self.steps:
@@ -202,14 +207,14 @@ class TodoItem:
                 if details:
                     step.details = details
                 break
-    
+
     def get_current_step(self) -> Optional[StepInfo]:
         """Get the currently running step"""
         for step in reversed(self.steps):
             if step.end_time is None:
                 return step
         return None
-        
+
     @property
     def status_symbol(self) -> str:
         """Get the status symbol for display"""
@@ -218,26 +223,26 @@ class TodoItem:
             TodoStatus.IN_PROGRESS: "🔄",
             TodoStatus.COMPLETED: "✅",
             TodoStatus.FAILED: "❌",
-            TodoStatus.SKIPPED: "⏭️"
+            TodoStatus.SKIPPED: "⏭️",
         }
         return symbols.get(self.status, "❓")
-        
+
     def start(self):
         """Mark the todo as started"""
         self.status = TodoStatus.IN_PROGRESS
         self.start_time = time.time()
-        
+
     def complete(self):
         """Mark the todo as completed"""
         self.status = TodoStatus.COMPLETED
         self.end_time = time.time()
-        
+
     def fail(self, error: Optional[str] = None):
         """Mark the todo as failed"""
         self.status = TodoStatus.FAILED
         self.end_time = time.time()
         self.error = error
-        
+
     def skip(self):
         """Mark the todo as skipped"""
         self.status = TodoStatus.SKIPPED
@@ -248,7 +253,7 @@ class ProgressTracker:
     """
     A progress tracker that manages todo items and progress bars
     """
-    
+
     def __init__(self, name: str = "Progress", show_progress: bool = True):
         self.name = name
         self.show_progress = show_progress
@@ -257,12 +262,12 @@ class ProgressTracker:
         self._current_todo: Optional[str] = None
         self._progress_bar: Optional[tqdm] = None
         self._logging_context: Optional[ProgressLoggingContext] = None
-        
+
         # Setup logging context if progress is enabled
         if self.show_progress:
             self._logging_context = ProgressLoggingContext()
             self._logging_context.__enter__()
-        
+
     def add_todo(self, todo_id: str, description: str) -> TodoItem:
         """Add a new todo item"""
         todo = TodoItem(id=todo_id, description=description)
@@ -270,96 +275,104 @@ class ProgressTracker:
         self.todo_order.append(todo_id)
         self._update_display()
         return todo
-        
+
     def add_todos(self, todos: List[tuple[str, str]]) -> List[TodoItem]:
         """Add multiple todo items at once"""
         todo_items = []
         for todo_id, description in todos:
             todo_items.append(self.add_todo(todo_id, description))
         return todo_items
-        
+
     def start_todo(self, todo_id: str):
         """Start working on a specific todo"""
         if todo_id not in self.todos:
             raise ValueError(f"Todo {todo_id} not found")
-            
+
         # Complete previous todo if it was in progress
         if self._current_todo and self._current_todo in self.todos:
             current = self.todos[self._current_todo]
             if current.status == TodoStatus.IN_PROGRESS:
                 current.complete()
-        
+
         self._current_todo = todo_id
         self.todos[todo_id].start()
         self._update_display()
-        
+
     def complete_todo(self, todo_id: str):
         """Mark a todo as completed"""
         if todo_id not in self.todos:
             raise ValueError(f"Todo {todo_id} not found")
-            
+
         self.todos[todo_id].complete()
         if self._current_todo == todo_id:
             self._current_todo = None
         self._update_display()
-        
+
     def fail_todo(self, todo_id: str, error: Optional[str] = None):
         """Mark a todo as failed"""
         if todo_id not in self.todos:
             raise ValueError(f"Todo {todo_id} not found")
-            
+
         self.todos[todo_id].fail(error)
         if self._current_todo == todo_id:
             self._current_todo = None
         self._update_display()
-        
+
     def skip_todo(self, todo_id: str):
         """Mark a todo as skipped"""
         if todo_id not in self.todos:
             raise ValueError(f"Todo {todo_id} not found")
-            
+
         self.todos[todo_id].skip()
         if self._current_todo == todo_id:
             self._current_todo = None
         self._update_display()
-    
-    def add_step(self, todo_id: str, step_name: str, step_description: str, details: Optional[str] = None) -> StepInfo:
+
+    def add_step(
+        self,
+        todo_id: str,
+        step_name: str,
+        step_description: str,
+        details: Optional[str] = None,
+    ) -> StepInfo:
         """Add a detailed step to a todo"""
         if todo_id not in self.todos:
             raise ValueError(f"Todo {todo_id} not found")
-        
+
         step = self.todos[todo_id].add_step(step_name, step_description, details)
         self._update_display()
         return step
-    
-    def complete_step(self, todo_id: str, step_name: str, details: Optional[str] = None):
+
+    def complete_step(
+        self, todo_id: str, step_name: str, details: Optional[str] = None
+    ):
         """Complete a step within a todo"""
         if todo_id not in self.todos:
             raise ValueError(f"Todo {todo_id} not found")
-        
+
         self.todos[todo_id].complete_step(step_name, details)
         self._update_display()
-    
+
     def get_current_step(self, todo_id: str) -> Optional[StepInfo]:
         """Get the currently running step for a todo"""
         if todo_id not in self.todos:
             return None
         return self.todos[todo_id].get_current_step()
-        
+
     def create_progress_bar(self, total: int, desc: str = "", **kwargs) -> tqdm:
         """Create a progress bar for the current operation"""
         if not self.show_progress:
             return tqdm(total=total, desc=desc, disable=True, **kwargs)
-        
+
         return tqdm(total=total, desc=desc, leave=False, **kwargs)
-        
+
     def create_async_progress_bar(self, total: int, desc: str = "", **kwargs) -> atqdm:
         """Create an async progress bar for the current operation"""
         if not self.show_progress:
             return atqdm(total=total, desc=desc, disable=True, **kwargs)
-        
+
         return atqdm(total=total, desc=desc, leave=False, **kwargs)
-        
+
     def cleanup(self):
         """Clean up logging context"""
         if self._logging_context:
@@ -368,19 +381,23 @@ class ProgressTracker:
                 self._logging_context = None
             except Exception:
                 pass  # Ignore cleanup errors
-    
+
     def _update_display(self):
         """Update the todo display with current step information"""
         if not self.show_progress:
             return
-            
+
         # Create the todo status line with current step info
         todo_parts = []
         for todo_id in self.todo_order:
             todo = self.todos[todo_id]
             symbol = todo.status_symbol
-            desc = todo.description[:15] + "..." if len(todo.description) > 15 else todo.description
-            
+            desc = (
+                todo.description[:15] + "..."
+                if len(todo.description) > 15
+                else todo.description
+            )
+
             # Add current step information if available
             current_step = todo.get_current_step()
             if current_step and todo.status == TodoStatus.IN_PROGRESS:
@@ -388,70 +405,90 @@ class ProgressTracker:
                 todo_parts.append(f"{symbol} {desc} {step_info}")
             else:
                 todo_parts.append(f"{symbol} {desc}")
-        
+
         todo_line = " ".join(todo_parts)
-        
+
         # Use tqdm.write if available and inside logging context, otherwise print normally
         if self._logging_context:
             tqdm.write(f"{self.name}: {todo_line}")
         else:
             # Print the status line (overwrite previous line if possible)
-            if hasattr(sys.stdout, 'isatty') and sys.stdout.isatty():
+            if hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
                 print(f"\r{self.name}: {todo_line}", end="", flush=True)
             else:
                 print(f"{self.name}: {todo_line}")
-            
+
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of all todos"""
         summary = {
             "total": len(self.todos),
-            "completed": sum(1 for t in self.todos.values() if t.status == TodoStatus.COMPLETED),
-            "failed": sum(1 for t in self.todos.values() if t.status == TodoStatus.FAILED),
-            "skipped": sum(1 for t in self.todos.values() if t.status == TodoStatus.SKIPPED),
-            "in_progress": sum(1 for t in self.todos.values() if t.status == TodoStatus.IN_PROGRESS),
-            "pending": sum(1 for t in self.todos.values() if t.status == TodoStatus.PENDING),
-            "total_duration": sum(t.duration for t in self.todos.values() if t.duration),
-            "todos": self.todos
+            "completed": sum(
+                1 for t in self.todos.values() if t.status == TodoStatus.COMPLETED
+            ),
+            "failed": sum(
+                1 for t in self.todos.values() if t.status == TodoStatus.FAILED
+            ),
+            "skipped": sum(
+                1 for t in self.todos.values() if t.status == TodoStatus.SKIPPED
+            ),
+            "in_progress": sum(
+                1 for t in self.todos.values() if t.status == TodoStatus.IN_PROGRESS
+            ),
+            "pending": sum(
+                1 for t in self.todos.values() if t.status == TodoStatus.PENDING
+            ),
+            "total_duration": sum(
+                t.duration for t in self.todos.values() if t.duration
+            ),
+            "todos": self.todos,
         }
         return summary
-        
+
     def print_summary(self, show_detailed_steps: bool = True):
         """Print a final summary with optional detailed step information"""
         summary = self.get_summary()
-        
+
         # Choose the appropriate print function
-        if  self._logging_context:
+        if self._logging_context:
             write_func = tqdm.write
         else:
             write_func = print
-        
+
         write_func(f"\n{self.name} Summary:")
         write_func(f"  Total: {summary['total']}")
         write_func(f"  ✅ Completed: {summary['completed']}")
-        if summary['failed'] > 0:
+        if summary["failed"] > 0:
             write_func(f"  ❌ Failed: {summary['failed']}")
-        if summary['skipped'] > 0:
+        if summary["skipped"] > 0:
             write_func(f"  ⏭️ Skipped: {summary['skipped']}")
-        if summary['total_duration']:
+        if summary["total_duration"]:
             write_func(f"  ⏱️ Total Duration: {summary['total_duration']:.2f}s")
-        
+
         # Show detailed timing information for each task
         if show_detailed_steps:
             write_func("\nDetailed Timing:")
             for todo_id in self.todo_order:
                 todo = self.todos[todo_id]
                 if todo.duration:
-                    write_func(f"  {todo.status_symbol} {todo.description}: {todo.duration:.2f}s")
-                    
+                    write_func(
+                        f"  {todo.status_symbol} {todo.description}: {todo.duration:.2f}s"
+                    )
+
                     # Show step breakdown if available
                     if todo.steps:
                         for step in todo.steps:
-                            duration_str = step.duration_str if step.duration else "interrupted"
+                            duration_str = (
+                                step.duration_str if step.duration else "interrupted"
+                            )
                             details_str = f" - {step.details}" if step.details else ""
-                            write_func(f"    └─ {step.description}: {duration_str}{details_str}")
+                            write_func(
+                                f"    └─ {step.description}: {duration_str}{details_str}"
+                            )
                 else:
-                    write_func(f"  {todo.status_symbol} {todo.description}: no timing data")
-            
+                    write_func(
+                        f"  {todo.status_symbol} {todo.description}: no timing data"
+                    )
+
         # Print failed todos with errors
         failed_todos = [t for t in self.todos.values() if t.status == TodoStatus.FAILED]
         if failed_todos:
@@ -460,13 +497,13 @@ class ProgressTracker:
                 write_func(f"  ❌ {todo.description}")
                 if todo.error:
                     write_func(f"     Error: {todo.error}")
-                    
+
                 # Show which step failed
                 if todo.steps:
                     failed_step = todo.get_current_step()  # Last incomplete step
                     if failed_step:
                         write_func(f"     Failed at: {failed_step.description}")
-        
+
         # Clean up logging context after printing summary
         self.cleanup()
 
@@ -475,15 +512,15 @@ class ProgressContext:
     """
     Context manager for progress tracking with step support
     """
-    
+
     def __init__(self, tracker: ProgressTracker, todo_id: str):
         self.tracker = tracker
         self.todo_id = todo_id
-        
+
     def __enter__(self):
         self.tracker.start_todo(self.todo_id)
         return self
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
             error_msg = str(exc_val) if exc_val else "Unknown error"
@@ -491,38 +528,52 @@ class ProgressContext:
         else:
             self.tracker.complete_todo(self.todo_id)
         return False  # Don't suppress exceptions
-    
-    def step(self, step_name: str, step_description: str, details: Optional[str] = None) -> 'StepContext':
+
+    def step(
+        self, step_name: str, step_description: str, details: Optional[str] = None
+    ) -> "StepContext":
         """Create a step context within this todo"""
-        return StepContext(self.tracker, self.todo_id, step_name, step_description, details)
+        return StepContext(
+            self.tracker, self.todo_id, step_name, step_description, details
+        )
 
 
 class StepContext:
     """
     Context manager for detailed step tracking within a todo
     """
-    
-    def __init__(self, tracker: ProgressTracker, todo_id: str, step_name: str, 
-                 step_description: str, details: Optional[str] = None):
+
+    def __init__(
+        self,
+        tracker: ProgressTracker,
+        todo_id: str,
+        step_name: str,
+        step_description: str,
+        details: Optional[str] = None,
+    ):
         self.tracker = tracker
         self.todo_id = todo_id
         self.step_name = step_name
         self.step_description = step_description
         self.details = details
-        
+
     def __enter__(self):
-        self.tracker.add_step(self.todo_id, self.step_name, self.step_description, self.details)
+        self.tracker.add_step(
+            self.todo_id, self.step_name, self.step_description, self.details
+        )
         return self
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
             # Step failed, but don't complete it - let the parent todo handle the failure
-            error_details = f"Failed: {exc_val}" if exc_val else "Failed with unknown error"
+            error_details = (
+                f"Failed: {exc_val}" if exc_val else "Failed with unknown error"
+            )
             self.tracker.complete_step(self.todo_id, self.step_name, error_details)
         else:
             self.tracker.complete_step(self.todo_id, self.step_name, "✓ Completed")
         return False  # Don't suppress exceptions
-    
+
     def update_details(self, details: str):
         """Update the details for this step"""
         # Find the current step and update its details
@@ -534,40 +585,42 @@ class StepContext:
                 self.tracker._update_display()
 
 
-def create_progress_tracker(name: str = "Progress", show_progress: bool = True) -> ProgressTracker:
+def create_progress_tracker(
+    name: str = "Progress", show_progress: bool = True
+) -> ProgressTracker:
     """Create a new progress tracker with automatic logging management"""
     return ProgressTracker(name=name, show_progress=show_progress)
 
 
 # Utility functions for common progress tracking patterns
 async def track_async_tasks(
-    tasks: List[Callable[[], Awaitable[Any]]], 
+    tasks: List[Callable[[], Awaitable[Any]]],
     descriptions: List[str],
     tracker: Optional[ProgressTracker] = None,
-    name: str = "Async Tasks"
+    name: str = "Async Tasks",
 ) -> List[Any]:
     """
     Track multiple async tasks with progress display
-    
+
     Args:
         tasks: List of async functions to execute
         descriptions: Description for each task
         tracker: Existing progress tracker or None to create new one
         name: Name for the tracker
-        
+
     Returns:
         List of results from each task
     """
     if tracker is None:
         tracker = create_progress_tracker(name)
-        
+
     # Add todos for each task
     todo_ids = []
     for i, desc in enumerate(descriptions):
         todo_id = f"task_{i}"
         tracker.add_todo(todo_id, desc)
         todo_ids.append(todo_id)
-    
+
     results = []
     for i, task in enumerate(tasks):
         todo_id = todo_ids[i]
@@ -578,5 +631,5 @@ async def track_async_tasks(
         except Exception as e:
             logger.error(f"Task {descriptions[i]} failed: {e}")
             results.append(None)
-    
+
     return results

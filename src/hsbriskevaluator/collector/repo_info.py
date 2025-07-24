@@ -31,8 +31,7 @@ class GithubEvent(BaseModel):
         "PushEvent",
         "ReleaseEvent",
     ] = Field(description="type of the event, such as push, pull_request, issue, etc.")
-    actor: str = Field(
-        description="username of the user who triggered the event")
+    actor: str = Field(description="username of the user who triggered the event")
     timestamp: str = Field(description="timestamp when the event occurred")
     payload: dict = Field(
         description="payload of the event, containing additional information such as issue"
@@ -59,12 +58,12 @@ class Commit(BaseModel):
     message: str = Field(description="commit message")
     timestamp: str = Field(description="timestamp when the commit was made")
     pull_numbers: list[int] = Field(
-        description="pull request numbers to for the commit")
+        description="pull request numbers to for the commit"
+    )
 
 
 class Comment(BaseModel):
-    user: User = Field(
-        description="the user who made the comment")
+    user: User = Field(description="the user who made the comment")
     content: str = Field(description="content of the comment")
     timestamp: str = Field(description="timestamp when the comment was made")
 
@@ -74,8 +73,7 @@ class Issue(BaseModel):
     author: User = Field(description="author of the issue")
     title: str = Field(description="title of the issue")
     body: str = Field(description="body content of the issue")
-    comments: list[Comment] = Field(
-        description="list of comments in the issue")
+    comments: list[Comment] = Field(description="list of comments in the issue")
     status: Literal["open", "closed"] = Field(
         description="status of the issue, can be open or closed"
     )
@@ -86,23 +84,21 @@ class Issue(BaseModel):
 
 class PullRequest(Issue):
     approvers: list[User] = Field(description="approver of the pull request")
-    reviewers: list[User] = Field(
-        description="list of reviewers for the pull request")
+    reviewers: list[User] = Field(description="list of reviewers for the pull request")
     merger: User = Field(description="merger of the pull request")
     status: Literal["open", "closed", "merged"] = Field(
         description="status of the pull request"
     )
-    merged_at: str | None = Field(
-        description="merge timestamp if merged", default=None)
+    merged_at: str | None = Field(description="merge timestamp if merged", default=None)
     changed_files: list[str] = Field(
-        description="list of changed files in the pull request")
+        description="list of changed files in the pull request"
+    )
 
 
 class Workflow(BaseModel):
     name: str = Field(description="name of the workflow")
     content: str = Field(description="content of the workflow file")
-    path: str = Field(
-        description="path of the workflow file in the repository")
+    path: str = Field(description="path of the workflow file in the repository")
 
 
 class CheckRun(BaseModel):
@@ -111,18 +107,16 @@ class CheckRun(BaseModel):
 
 class BasicInfo(BaseModel):
     description: str = Field(description="description of the repository")
-    stargazers_count: int = Field(
-        description="number of stars in the repository")
-    watchers_count: int = Field(
-        description="number of watchers in the repository")
+    stargazers_count: int = Field(description="number of stars in the repository")
+    watchers_count: int = Field(description="number of watchers in the repository")
     forks_count: int = Field(description="number of forks in the repository")
     html_url: str = Field(
         description="HTML URL of the repository, usually the same as repo_id",
-        default=""  # Default to empty string if not available
+        default="",  # Default to empty string if not available
     )
     clone_url: str = Field(
         description="Clone URL of the repository, used for cloning via git",
-        default=""  # Default to empty string if not available
+        default="",  # Default to empty string if not available
     )
 
 
@@ -135,16 +129,12 @@ class RepoInfo(BaseModel):
         description="unique identifier for the repository, usually the orgname-repo_name format"
     )
     url: str = Field(description="URL of the repository")
-    basic_info: BasicInfo = Field(
-        description="Basic information of the repository"
-    )
-    commit_list: list[Commit] = Field(
-        description="List of commits in the repository")
+    basic_info: BasicInfo = Field(description="Basic information of the repository")
+    commit_list: list[Commit] = Field(description="List of commits in the repository")
     pr_list: list[PullRequest] = Field(
         description="List of pull requests in the repository"
     )
-    issue_list: list[Issue] = Field(
-        description="List of issues in the repository")
+    issue_list: list[Issue] = Field(description="List of issues in the repository")
     binary_file_list: list[str] = Field(
         description="List of binary files in the repository"
     )

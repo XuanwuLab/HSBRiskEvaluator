@@ -3,6 +3,7 @@ import os
 from pygments.lexers import guess_lexer_for_filename
 from pygments.util import ClassNotFound
 
+
 def get_data_dir():
     data_dir = Path(__file__).parent.parent.parent.parent / "data"
     if not data_dir.exists():
@@ -34,12 +35,12 @@ def is_binary(file_path: str) -> bool:
     ratio = non_text / len(data)
     return ratio > 0.3
 
+
 def detect_language(file_path: str) -> str:
     try:
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             content = f.read(4096)
         lexer = guess_lexer_for_filename(file_path, content)
         return lexer.name
     except ClassNotFound:
         return "Unknown"
-

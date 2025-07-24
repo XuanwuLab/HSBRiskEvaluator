@@ -148,38 +148,73 @@ class DisplayManager:
             return
 
         with self.lock:
-            # Move cursor to top of our display area
-            print(f"\033[s", end="")  # Save cursor position
+            # Save cursor position and clear the area we control
+            print("\033[s", end="", flush=True)  # Save cursor position
+            
+            # Calculate terminal dimensions
+            try:
+                terminal_width = os.get_terminal_size().columns
+            except OSError:
+                terminal_width = 80
+                
+            total_display_lines = self.log_section_height + self.step_section_height
+            
+            # Move to top of terminal and clear our display area
+            print("\033[H", end="", flush=True)  # Move to home position
+            for i in range(total_display_lines):
+                print("\033[K", end="", flush=True)  # Clear line
+                if i < total_display_lines - 1:
+                    print()  # Move to next line
 
-            # Clear our sections (but preserve tqdm at bottom)
-            for i in range(self.log_section_height + self.step_section_height):
-                print(f"\033[{i+1};1H\033[K", end="")  # Move to line and clear
-
+            # Move back to top and start drawing
+            print("\033[H", end="", flush=True)  # Move to home position
+            
             # Draw log section
-            print(f"\033[1;1H", end="")  # Move to top
-            print("=" * 80)
+            separator = "=" * min(terminal_width - 1, 80)
+            log_separator = "-" * min(terminal_width - 1, 80)
+            
+            print(separator)
             print("LOGS (Recent)")
-            print("-" * 80)
+            print(log_separator)
 
             # Show recent logs
-            for i, log_line in enumerate(list(self.log_buffer)[-self.max_log_lines :]):
-                if i < self.log_section_height - 3:
-                    print(f"{log_line[:78]:<78}")
+            log_lines_to_show = self.log_section_height - 4  # Account for headers and separator
+            recent_logs = list(self.log_buffer)[-log_lines_to_show:] if self.log_buffer else []
+            
+            for log_line in recent_logs:
+                # Truncate to terminal width
+                display_line = log_line[:terminal_width - 1] if len(log_line) > terminal_width - 1 else log_line
+                print(display_line)
+                
+            # Fill remaining log section lines
+            for _ in range(max(0, log_lines_to_show - len(recent_logs))):
+                print()
 
             # Draw step section
-            print("-" * 80)
+            print(log_separator)
             print("CURRENT STEPS")
-            print("-" * 80)
+            print(log_separator)
 
             # Show active steps
-            for thread_id, step_info in list(self.current_steps.items())[
-                : self.step_section_height - 3
-            ]:
+            step_lines_to_show = self.step_section_height - 4  # Account for headers and separator
+            active_steps = list(self.current_steps.items())[:step_lines_to_show]
+            
+            for thread_id, step_info in active_steps:
                 thread_short = thread_id[-6:] if len(thread_id) > 6 else thread_id
-                print(f"[{thread_short}] {step_info[:70]:<70}")
-
-            print("=" * 80)
-            print(f"\033[u", end="")  # Restore cursor position
+                step_line = f"[{thread_short}] {step_info}"
+                # Truncate to terminal width
+                display_line = step_line[:terminal_width - 1] if len(step_line) > terminal_width - 1 else step_line
+                print(display_line)
+                
+            # Fill remaining step section lines  
+            for _ in range(max(0, step_lines_to_show - len(active_steps))):
+                print()
+                
+            print(separator)
+            
+            # Move cursor to bottom of our display area for tqdm
+            print(f"\033[{total_display_lines + 1};1H", end="", flush=True)
+            sys.stdout.flush()
 
     def _clear_display(self):
         """Clear our display sections"""
@@ -253,12 +288,19 @@ try:
         """tqdm that positions itself at the bottom and works with DisplayManager"""
 
         def __init__(self, *args, **kwargs):
-            # Force position to bottom and adjust settings for organized display
-            kwargs.setdefault("position", None)  # Let tqdm manage positioning
-            kwargs.setdefault(
-                "leave", False
-            )  # Don't leave progress bars after completion
+            # Get the display manager to calculate proper positioning
+            display_manager = get_display_manager()
+            
+            # Calculate position based on display manager's reserved space
+            if display_manager.active:
+                reserved_lines = display_manager.log_section_height + display_manager.step_section_height + 1
+                kwargs.setdefault("position", reserved_lines)
+            else:
+                kwargs.setdefault("position", None)
+                
+            kwargs.setdefault("leave", False)  # Don't leave progress bars after completion
             kwargs.setdefault("dynamic_ncols", True)  # Adjust to terminal width
+            kwargs.setdefault("miniters", 1)  # Update more frequently
             kwargs.setdefault(
                 "bar_format",
                 "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
@@ -266,11 +308,16 @@ try:
 
             super().__init__(*args, **kwargs)
 
-        @classmethod
+        @classmethod  
         def write(cls, s, file=None, end="\n", nolock=False):
-            """Override write to avoid interfering with our display"""
-            # Let tqdm handle its own output positioning
-            super().write(s, file=file, end=end, nolock=nolock)
+            """Override write to position output correctly"""
+            # Write below our organized sections
+            display_manager = get_display_manager()
+            if display_manager.active:
+                reserved_lines = display_manager.log_section_height + display_manager.step_section_height + 2
+                print(f"\033[{reserved_lines};1H{s}", end=end, file=file or sys.stdout, flush=True)
+            else:
+                print(s, end=end, file=file or sys.stdout, flush=True)
 
     # Replace the tqdm class for our organized version
     organized_tqdm = OrganizedTqdm
