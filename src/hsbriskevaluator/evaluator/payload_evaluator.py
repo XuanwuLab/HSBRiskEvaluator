@@ -7,6 +7,7 @@ from hsbriskevaluator.evaluator.base import (
     PayloadHiddenEvalResult,
     PayloadHiddenDetail,
 )
+from hsbriskevaluator.evaluator.settings import EvaluatorSettings
 from hsbriskevaluator.collector.repo_info import RepoInfo
 from hsbriskevaluator.utils.llm import get_async_instructor_client, call_llm_with_client
 from hsbriskevaluator.utils.file import get_data_dir, is_binary
@@ -25,13 +26,13 @@ class PayloadEvaluator(BaseEvaluator):
     def __init__(
         self,
         repo_info: RepoInfo,
-        llm_model_name: str = PAYLOAD_FILE_ANALYSIS_MODEL_ID,
-        max_concurrency: int = 5,
+        settings: EvaluatorSettings,
     ):
         super().__init__(repo_info)
-        self.llm_model_name = llm_model_name
-        self.max_concurrency = max_concurrency
-        self._semaphore = asyncio.Semaphore(max_concurrency)
+        self.settings = settings
+        self.llm_model_name = settings.payload_file_analysis_model_id
+        self.max_concurrency = settings.payload_max_concurrency
+        self._semaphore = asyncio.Semaphore(self.max_concurrency)
         self.client = get_async_instructor_client()
 
     async def evaluate(self) -> PayloadHiddenEvalResult:

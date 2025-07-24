@@ -9,6 +9,7 @@ from hsbriskevaluator.evaluator.base import (
     DangerousTriggerAnalysis,
 )
 from hsbriskevaluator.collector.repo_info import RepoInfo, Workflow
+from hsbriskevaluator.evaluator.settings import EvaluatorSettings
 from hsbriskevaluator.utils.llm import get_async_instructor_client, call_llm_with_client
 from hsbriskevaluator.utils.prompt import (
     CI_WORKFLOW_ANALYSIS_PROMPT,
@@ -25,13 +26,13 @@ class CIEvaluator(BaseEvaluator):
     def __init__(
         self,
         repo_info: RepoInfo,
-        llm_model_name: str = CI_WORKFLOW_ANALYSIS_MODEL_ID,
-        max_concurrency: int = 3,
+        settings: EvaluatorSettings,
     ):
         super().__init__(repo_info)
-        self.llm_model_name = llm_model_name
-        self.max_concurrency = max_concurrency
-        self._semaphore = asyncio.Semaphore(max_concurrency)
+        self.settings = settings
+        self.llm_model_name = settings.ci_workflow_analysis_model_id
+        self.max_concurrency = settings.ci_max_concurrency
+        self._semaphore = asyncio.Semaphore(self.max_concurrency)
         self.client = get_async_instructor_client()
 
     async def evaluate(self) -> CIEvalResult:
@@ -171,7 +172,7 @@ class CIEvaluator(BaseEvaluator):
                     try:
                         response = requests.get(
                             f"https://github.com/marketplace/actions/{action.split('/')[1]}",
-                            timeout=10,
+                            timeout=self.settings.http_request_timeout,
                         )
                         if "About badges in GitHub Marketplace" not in response.text:
                             return True  # Untrusted action provider

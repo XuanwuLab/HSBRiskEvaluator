@@ -7,6 +7,7 @@ from hsbriskevaluator.evaluator.base import (
     DependencyEvalResult,
     DependencyDetail,
 )
+from hsbriskevaluator.evaluator.settings import EvaluatorSettings
 from hsbriskevaluator.collector.repo_info import RepoInfo
 from hsbriskevaluator.utils.apt_utils import AptUtils, Dependent
 
@@ -16,9 +17,10 @@ logger = logging.getLogger(__name__)
 class DependencyEvaluator(BaseEvaluator):
     """Evaluator for Software Supply Chain Dependency Location metrics"""
 
-    def __init__(self, repo_info: RepoInfo, max_concurrency: int = 5):
+    def __init__(self, repo_info: RepoInfo, settings: EvaluatorSettings):
         super().__init__(repo_info)
-        self.apt_utils = AptUtils(max_concurrency=max_concurrency)
+        self.settings = settings
+        self.apt_utils = AptUtils(max_concurrency=settings.dependency_max_concurrency)
         self.cloud_product_packages, self.cloud_product_dependencies = self._load_yaml(
             "cloud_products.yaml"
         )

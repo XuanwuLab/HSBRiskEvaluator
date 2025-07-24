@@ -6,6 +6,7 @@ from hsbriskevaluator.evaluator.community_evaluator import CommunityEvaluator
 from hsbriskevaluator.evaluator.payload_evaluator import PayloadEvaluator
 from hsbriskevaluator.evaluator.dependency_evaluator import DependencyEvaluator
 from hsbriskevaluator.evaluator.CI_evaluator import CIEvaluator
+from hsbriskevaluator.evaluator.settings import EvaluatorSettings
 from hsbriskevaluator.collector.repo_info import RepoInfo
 
 logger = logging.getLogger(__name__)
@@ -17,22 +18,22 @@ class HSBRiskEvaluator(BaseEvaluator):
     def __init__(
         self,
         repo_info: RepoInfo,
-        llm_model_name: str = "anthropic/claude-3.5-sonnet",
-        max_concurrency: int = 3,
+        settings: EvaluatorSettings = None,
     ):
         super().__init__(repo_info)
-        self.llm_model_name = llm_model_name
-        self.max_concurrency = max_concurrency
+        if settings is None:
+            settings = EvaluatorSettings()
+        self.settings = settings
 
         # Initialize individual evaluators
         self.community_evaluator = CommunityEvaluator(
-            repo_info, llm_model_name, max_concurrency
+            repo_info, self.settings
         )
         self.payload_evaluator = PayloadEvaluator(
-            repo_info, llm_model_name, max_concurrency
+            repo_info, self.settings
         )
-        self.dependency_evaluator = DependencyEvaluator(repo_info, max_concurrency)
-        self.CI_evaluator = CIEvaluator(repo_info, llm_model_name, max_concurrency)
+        self.dependency_evaluator = DependencyEvaluator(repo_info, self.settings)
+        self.CI_evaluator = CIEvaluator(repo_info, self.settings)
 
     async def evaluate(self) -> EvalResult:
         """Perform comprehensive HSB risk evaluation"""

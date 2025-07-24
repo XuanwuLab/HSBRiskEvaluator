@@ -11,6 +11,7 @@ from hsbriskevaluator.collector.repo_info import (
     Commit,
     User,
 )
+from hsbriskevaluator.evaluator.settings import EvaluatorSettings
 from hsbriskevaluator.utils.llm import get_async_instructor_client, call_llm_with_client
 from hsbriskevaluator.utils.prompt import (
     PR_CONSISTENCY_ANALYSIS_PROMPT,
@@ -35,13 +36,13 @@ class CommunityEvaluator(BaseEvaluator):
     def __init__(
         self,
         repo_info: RepoInfo,
-        llm_model_name: str = PR_CONSISTENCY_ANALYSIS_MODEL_ID,
-        max_concurrency: int = 3,
+        settings: EvaluatorSettings,
     ):
         super().__init__(repo_info)
-        self.llm_model_name = llm_model_name
-        self.max_concurrency = max_concurrency
-        self._semaphore = asyncio.Semaphore(max_concurrency)
+        self.settings = settings
+        self.llm_model_name = settings.pr_consistency_analysis_model_id
+        self.max_concurrency = settings.community_max_concurrency
+        self._semaphore = asyncio.Semaphore(self.max_concurrency)
         self.client = get_async_instructor_client()
 
     async def evaluate(self) -> CommunityEvalResult:
@@ -337,8 +338,8 @@ class CommunityEvaluator(BaseEvaluator):
         prs_to_analyze = list(
             filter(lambda pr: pr.status == "merged", self.repo_info.pr_list)
         )[
-            :10
-        ]  # Analyze first 10 PRs
+            :self.settings.prs_to_analyze_limit
+        ]  # Analyze first N PRs
 
         if not prs_to_analyze:
             return 0
@@ -393,7 +394,7 @@ class CommunityEvaluator(BaseEvaluator):
                     messages=messages,
                     response_model=PRInconsistencyAnalysis,
                 )
-                return analysis.is_inconsistent and analysis.confidence > 0.7
+                return analysis.is_inconsistent and analysis.confidence > self.settings.pr_consistency_confidence_threshold
 
             except Exception as e:
                 logger.warning(f"LLM analysis failed for PR {pr.number}: {str(e)}")
@@ -450,12 +451,12 @@ class CommunityEvaluator(BaseEvaluator):
         # Higher participation indicates better community engagement
 
         # Normalize participants (assuming 5+ participants is very active)
-        normalized_issue_activity = min(avg_issue_participants / 5.0, 1.0)
-        normalized_pr_activity = min(avg_pr_participants / 3.0, 1.0)
+        normalized_issue_activity = min(avg_issue_participants / self.settings.max_issue_participants_for_normalization, 1.0)
+        normalized_pr_activity = min(avg_pr_participants / self.settings.max_pr_participants_for_normalization, 1.0)
 
         # Weight PR activity higher as it's more critical for security
-        activity_score = (normalized_issue_activity * 0.3) + (
-            normalized_pr_activity * 0.7
+        activity_score = (normalized_issue_activity * self.settings.issue_activity_weight) + (
+            normalized_pr_activity * self.settings.pr_activity_weight
         )
 
         logger.debug(f"Community activity score: {activity_score:.3f}")
