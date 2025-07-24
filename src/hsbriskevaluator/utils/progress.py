@@ -16,42 +16,8 @@ import threading
 from contextlib import contextmanager
 
 # Try to import tqdm, fall back gracefully if not available
-try:
-    from tqdm import tqdm
-    from tqdm.asyncio import tqdm as atqdm
-    TQDM_AVAILABLE = True
-except ImportError:
-    TQDM_AVAILABLE = False
-    # Create mock tqdm classes for when tqdm is not available
-    class tqdm:
-        def __init__(self, iterable=None, desc=None, total=None, **kwargs):
-            self.iterable = iterable
-            self.desc = desc or ""
-            self.total = total
-            self.n = 0
-            
-        def __enter__(self):
-            return self
-            
-        def __exit__(self, *args):
-            pass
-            
-        def update(self, n=1):
-            self.n += n
-            
-        def set_description(self, desc):
-            self.desc = desc
-            
-        def __iter__(self):
-            if self.iterable:
-                for item in self.iterable:
-                    yield item
-                    self.update(1)
-    
-    class atqdm(tqdm):
-        pass
-
-
+from tqdm import tqdm
+from tqdm.asyncio import tqdm as atqdm
 class TqdmLoggingHandler(logging.Handler):
     """
     Logging handler that works with tqdm progress bars.
@@ -69,12 +35,8 @@ class TqdmLoggingHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            if TQDM_AVAILABLE:
-                # Use tqdm.write to avoid interfering with progress bars
-                tqdm.write(msg)
-            else:
-                # Fall back to regular print
-                print(msg)
+            # Use tqdm.write to avoid interfering with progress bars
+            tqdm.write(msg)
         except Exception:
             self.handleError(record)
 
@@ -113,8 +75,6 @@ class ProgressLoggingContext:
     @classmethod
     def _setup_tqdm_logging(cls):
         """Setup tqdm-compatible logging for all loggers"""
-        if not TQDM_AVAILABLE:
-            return  # No need to change logging if tqdm is not available
             
         # Get the root logger
         root_logger = logging.getLogger()
@@ -134,7 +94,7 @@ class ProgressLoggingContext:
         for logger_name in ['hsbriskevaluator', 'github', 'urllib3']:
             logger = logging.getLogger(logger_name)
             logger.handlers.clear()
-            logger.addHandler(cls._tqdm_handler)
+            # Don't add handler to specific loggers, let them propagate to root
             logger.propagate = True
     
     @classmethod
@@ -432,7 +392,7 @@ class ProgressTracker:
         todo_line = " ".join(todo_parts)
         
         # Use tqdm.write if available and inside logging context, otherwise print normally
-        if TQDM_AVAILABLE and self._logging_context:
+        if self._logging_context:
             tqdm.write(f"{self.name}: {todo_line}")
         else:
             # Print the status line (overwrite previous line if possible)
@@ -460,7 +420,7 @@ class ProgressTracker:
         summary = self.get_summary()
         
         # Choose the appropriate print function
-        if TQDM_AVAILABLE and self._logging_context:
+        if  self._logging_context:
             write_func = tqdm.write
         else:
             write_func = print

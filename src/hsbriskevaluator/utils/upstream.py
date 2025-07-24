@@ -5,10 +5,8 @@ from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
 from pydantic import BaseModel, ValidationError
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+# Remove logging.basicConfig to avoid conflicts with progress tracking
+# The progress system handles logging configuration automatically
 import aiohttp
 logger = logging.getLogger(__name__)
 
