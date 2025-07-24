@@ -1,11 +1,12 @@
 import os
 import time
 from datetime import timedelta
-import asyncio
 import yaml
 from pathlib import Path
 from typing import Dict
 import logging
+import asyncio
+from multiprocessing import Pool, Semaphore
 
 from hsbriskevaluator.collector.github_collector import CollectorSettings
 from hsbriskevaluator.utils.file import get_data_dir
@@ -60,95 +61,88 @@ def get_repo_name(git_url: str) -> str:
         raise
 
 
-async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore):
+def collect_one(package_info: Dict, github_tokens: list):
     """
     Collect repository information for a single package file and update it if needed.
 
     Args:
         package_info (Dict): Information about the package.
-        semaphore (asyncio.Semaphore): A semaphore to limit concurrency.
+        github_tokens (list): List of GitHub tokens for API access.
     """
+    try:
+        settings = CollectorSettings(github_tokens=github_tokens)
+        logger.info(f"github_tokens: {len(github_tokens)} tokens loaded.")
+        
+        # Validate package information
+        package_name = package_info.get("parent_package") or package_info.get("package")
+        if not package_name:
+            raise ValueError("Missing 'package' or 'parent_package' in package info.")
 
-    github_tokens = []
-    with open(Path(__file__).parent.parent / ".github_tokens", "r") as f:
-        github_tokens = [line.strip() for line in f if line.strip()]
-    settings = CollectorSettings(
-        github_tokens=github_tokens,
-    )
-    logger.info(f"github_tokens: {len(github_tokens)} tokens loaded.")
-    # Create tasks for each package
-    async with semaphore:  # Ensure concurrency limit
-        try:
-            # Validate package information
-            package_name = package_info.get("parent_package") or package_info.get(
-                "package"
+        git_url = package_info.get("upstream_git_url")
+        if not git_url:
+            raise ValueError(f"Missing 'upstream_git_url' for package: {package_name}")
+
+        # Skip non-GitHub URLs
+        if not git_url.startswith("https://github"):
+            logger.info(
+                f"Skipping package {package_name} due to non-GitHub git URL: {git_url}"
             )
-            if not package_name:
-                raise ValueError(
-                    "Missing 'package' or 'parent_package' in package info."
-                )
+            return
 
-            git_url = package_info.get("upstream_git_url")
-            if not git_url:
-                raise ValueError(
-                    f"Missing 'upstream_git_url' for package: {package_name}"
-                )
-
-            # Skip non-GitHub URLs
-            if not git_url.startswith("https://github"):
-                logger.info(
-                    f"Skipping package {package_name} due to non-GitHub git URL: {git_url}"
-                )
-                return
-
-            # Define output path for repository info
-            repo_info_path = get_data_dir() / "repo_info" / f"{package_name}.yaml"
-            if repo_info_path.exists():
-                logger.info(
-                    f"Repository info for {package_name} already exists, skipping."
-                )
-                return
-
-            if not repo_info_path.parent.exists():
-                repo_info_path.parent.mkdir(parents=True, exist_ok=True)
-            # Collect repository information
-            repo_info = await collect_all(
-                pkt_type="debian",
-                pkt_name=package_info["package"],
-                repo_name=get_repo_name(git_url),
-                settings=settings,
+        # Define output path for repository info
+        repo_info_path = get_data_dir() / "repo_info" / f"{package_name}.yaml"
+        if repo_info_path.exists():
+            logger.info(
+                f"Repository info for {package_name} already exists, skipping."
             )
+            return
 
-            # Save the collected repository information
-            save_yaml(repo_info.model_dump(), repo_info_path)
+        if not repo_info_path.parent.exists():
+            repo_info_path.parent.mkdir(parents=True, exist_ok=True)
 
-        except Exception as e:
-            # Log errors for individual packages
-            logger.error(f"Error processing package {package_name}: {e}")
-            raise e
+        # Collect repository information
+        repo_info = asyncio.run(collect_all(
+            pkt_type="debian",
+            pkt_name=package_info["package"],
+            repo_name=get_repo_name(git_url),
+            settings=settings,
+        ))
+
+        # Save the collected repository information
+        save_yaml(repo_info.model_dump(), repo_info_path)
+
+    except Exception as e:
+        # Log errors for individual packages
+        logger.error(f"Error processing package {package_name}: {e}")
+        raise e
 
 
-async def collect_repo_info(package_file: Path, max_concurrency: int = 5):
+def collect_repo_info(package_file: Path, max_concurrency: int = 5):
     """
-    Collect repository information for multiple packages and update YAML files.
+    Collect repository information for multiple packages using multiprocessing.
 
     Args:
         package_file (Path): Path to the YAML file containing package information.
-        max_concurrency (int): Maximum number of concurrent tasks allowed.
+        max_concurrency (int): Maximum number of concurrent processes allowed.
     """
     package_dict_by_name = load_yaml(package_file)
-    semaphore = asyncio.Semaphore(max_concurrency)
 
-    tasks = [
-        collect_one(package_info, semaphore)
+    # Read GitHub tokens
+    github_tokens = []
+    with open(Path(__file__).parent.parent / ".github_tokens", "r") as f:
+        github_tokens = [line.strip() for line in f if line.strip()]
+
+    # Prepare arguments for multiprocessing
+    package_list = [
+        (package_info, github_tokens)
         for package_name, package_info in package_dict_by_name.items()
     ]
 
-    # Run tasks concurrently while logging exceptions
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    for result in results:
-        if isinstance(result, Exception):
-            logger.error(f"Task failed with exception: {result}")
+    # Use multiprocessing Pool for concurrency
+    with Pool(processes=max_concurrency) as pool:
+        results = pool.starmap(collect_one, package_list)
+
+    logger.info("All tasks completed.")
 
 
 # Main entry point
@@ -160,4 +154,4 @@ if __name__ == "__main__":
         if not file.exists():
             logger.error(f"File {file} does not exist.")
         else:
-            asyncio.run(collect_repo_info(file, 5))
+            collect_repo_info(file, max_concurrency=5)
