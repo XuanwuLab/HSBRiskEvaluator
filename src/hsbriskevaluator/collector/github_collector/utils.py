@@ -5,7 +5,10 @@ Utility functions for GitHub collector operations.
 import asyncio
 import logging
 import subprocess
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..settings import CollectorSettings
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -20,6 +23,12 @@ logger = logging.getLogger(__name__)
 
 class LocalRepoUtils:
     """Utility class for local repository operations"""
+    
+    def __init__(self, settings: Optional["CollectorSettings"] = None):
+        if settings is None:
+            from ..settings import CollectorSettings
+            settings = CollectorSettings()
+        self.settings = settings
 
     @staticmethod
     async def _run_in_executor(executor: ThreadPoolExecutor, func, *args):
@@ -43,6 +52,7 @@ class LocalRepoUtils:
         """
 
         def _clone_repo():
+            settings = self.settings
             try:
                 data_dir = get_data_dir()
                 repo_dir_name = repo_name.replace("/", "-")
@@ -57,7 +67,7 @@ class LocalRepoUtils:
                 # Clone the repository
                 cmd = ["git", "clone", repo_url, str(local_repo_path)]
                 result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=300  # 5 minute timeout
+                    cmd, capture_output=True, text=True, timeout=settings.git_clone_timeout_seconds
                 )
 
                 if result.returncode == 0:
@@ -130,7 +140,6 @@ class LocalRepoUtils:
     async def get_local_commits(
         self,
         local_repo_path: Path,
-        since_timestamp: Optional[datetime] = None,
         executor: Optional[ThreadPoolExecutor] = None,
     ) -> List[Commit]:
         """
@@ -138,7 +147,6 @@ class LocalRepoUtils:
 
         Args:
             local_repo_path: Path to the local Git repository.
-            since_timestamp: Fetch commits only after this timestamp.
             executor: ThreadPoolExecutor for async operations
 
         Returns:
@@ -148,6 +156,14 @@ class LocalRepoUtils:
         def _fetch_local_commits():
             """Fetch commits from the local Git repository."""
             commits = []
+            max_commits = self.settings.get_max_commits()
+            since_time = self.settings.get_commits_since_time()
+            since_timestamp = None
+            if since_time:
+                from datetime import timezone
+                since_timestamp = datetime.now(tz=timezone.utc) - since_time
+            count = 0
+            
             try:
                 # Open the local repository
                 repo = Repo(local_repo_path)
@@ -161,6 +177,10 @@ class LocalRepoUtils:
 
                 # Iterate through commits
                 for commit in repo.iter_commits():
+                    # Check max limit
+                    if max_commits is not None and count >= max_commits:
+                        break
+                        
                     # Filter commits by timestamp if specified
                     commit_date = datetime.fromtimestamp(commit.committed_date)
                     if since_timestamp and commit_date < since_timestamp:
@@ -188,6 +208,7 @@ class LocalRepoUtils:
                             pull_numbers=pull_numbers,
                         )
                     )
+                    count += 1
 
                 logger.info(
                     f"Retrieved {len(commits)} commits from local repo: {local_repo_path}"

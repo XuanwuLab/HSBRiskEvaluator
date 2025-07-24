@@ -22,7 +22,8 @@ from tenacity import (
 from dotenv import load_dotenv
 
 from ..repo_info import RepoInfo
-from ..utils.file import get_data_dir
+from ..settings import CollectorSettings
+from ...utils.file import get_data_dir
 from .data_collectors import GitHubDataCollector
 from .utils import LocalRepoUtils
 
@@ -33,13 +34,18 @@ logger = logging.getLogger(__name__)
 class GitHubRepoCollector:
     """Collector for GitHub repository information using the official PyGithub library"""
 
-    def __init__(self, github_token: Optional[str] = None):
+    def __init__(self, github_token: Optional[str] = None, settings: Optional[CollectorSettings] = None):
         """
         Initialize the GitHub collector
 
         Args:
             github_token: GitHub API token. If not provided, will use GITHUB_TOKEN env var
+            settings: Collector settings (if not provided, defaults will be used)
         """
+        if settings is None:
+            settings = CollectorSettings()
+        self.settings = settings
+        
         self.token = github_token or os.getenv("GITHUB_TOKEN")
         if not self.token:
             raise ValueError(
@@ -47,9 +53,9 @@ class GitHubRepoCollector:
             )
 
         self.github = Github(self.token)
-        self.executor = ThreadPoolExecutor(max_workers=5)
-        self.data_collector = GitHubDataCollector(self.executor)
-        self.local_utils = LocalRepoUtils()
+        self.executor = ThreadPoolExecutor(max_workers=settings.github_max_workers)
+        self.data_collector = GitHubDataCollector(self.executor, settings)
+        self.local_utils = LocalRepoUtils(settings)
 
     async def __aenter__(self):
         return self
@@ -91,7 +97,6 @@ class GitHubRepoCollector:
         repo_name: str,
         pkt_type: str = "debian",
         pkt_name: str = "",
-        time_window: Optional[timedelta] = None,
     ) -> RepoInfo:
         """
         Collect complete repository information and return as RepoInfo model
@@ -99,7 +104,6 @@ class GitHubRepoCollector:
         Args:
             repo_name: Repository name in format 'owner/repo'
             pkt_name: Package name (optional, defaults to repo name)
-            time_window: Time window for filtering issues, PRs, and events.
 
         Returns:
             RepoInfo: Complete repository information
@@ -107,11 +111,7 @@ class GitHubRepoCollector:
         logger.info(f"Starting collection for repository: {repo_name}")
 
         try:
-            if time_window:
-                since_timestamp = datetime.now(tz=timezone.utc) - time_window
-            else:
-                since_timestamp = None
-
+            # Override settings with time_window if provided
             # Get repository object
             repo = await self._run_in_executor(self._get_repository, repo_name)
             data_dir = get_data_dir()
@@ -125,17 +125,17 @@ class GitHubRepoCollector:
                 self.data_collector.get_basic_info(repo)
             )
             issues_task = asyncio.create_task(
-                self.data_collector.get_issues(repo, since_timestamp)
+                self.data_collector.get_issues(repo)
             )
             prs_task = asyncio.create_task(
-                self.data_collector.get_pull_requests(repo, since_timestamp)
+                self.data_collector.get_pull_requests(repo)
             )
             # events are not used in the current implementation, but can be uncommented if needed
             # events_task = asyncio.create_task(
-            #    self.data_collector.get_events(repo, since_timestamp))
+            #    self.data_collector.get_events(repo))
             # commits are not used since it will make repo_info too large
             # commits_task = asyncio.create_task(
-            #    self.data_collector.get_local_commits(local_repo_path, since_timestamp))
+            #    self.data_collector.get_local_commits(local_repo_path))
 
             # Use local binary file detection if repository was cloned
             binary_files_task = asyncio.create_task(
@@ -194,12 +194,15 @@ class GitHubRepoCollector:
             if local_repo_dir:
                 logger.info(f"  - Local Repository: {local_repo_dir}")
 
+
             return repo_info
 
         except GithubException as e:
+            # Restore original settings if they were temporarily modified
             logger.error(f"GitHub API error collecting repo info for {repo_name}: {e}")
             raise
         except Exception as e:
+            # Restore original settings if they were temporarily modified
             logger.error(f"Error collecting repo info for {repo_name}: {e}")
             raise
 
@@ -247,6 +250,7 @@ async def collect_github_repo_info(
     pkt_type: str = "debian",
     pkt_name: str = "",
     github_token: Optional[str] = None,
+    settings: Optional[CollectorSettings] = None,
     **kwargs,
 ) -> RepoInfo:
     """
@@ -256,12 +260,13 @@ async def collect_github_repo_info(
         repo_name: Repository name in format 'owner/repo'
         pkt_name: Package name (optional)
         github_token: GitHub API token (optional, uses env var if not provided)
+        settings: Collector settings
         **kwargs: Additional arguments
 
     Returns:
         RepoInfo: Repository information
     """
-    async with GitHubRepoCollector(github_token) as collector:
+    async with GitHubRepoCollector(github_token, settings) as collector:
         return await collector.collect_repo_info(
             repo_name, pkt_type, pkt_name, **kwargs
         )
@@ -269,7 +274,7 @@ async def collect_github_repo_info(
 
 # Convenience function for multiple repositories collection
 async def collect_multiple_github_repos(
-    repo_names: List[str], github_token: Optional[str] = None, **kwargs
+    repo_names: List[str], github_token: Optional[str] = None, settings: Optional[CollectorSettings] = None, **kwargs
 ) -> List[RepoInfo]:
     """
     Convenience function to collect information for multiple repositories
@@ -277,10 +282,11 @@ async def collect_multiple_github_repos(
     Args:
         repo_names: List of repository names
         github_token: GitHub API token (optional, uses env var if not provided)
+        settings: Collector settings
         **kwargs: Additional arguments
 
     Returns:
         List[RepoInfo]: List of repository information
     """
-    async with GitHubRepoCollector(github_token) as collector:
+    async with GitHubRepoCollector(github_token, settings) as collector:
         return await collector.collect_multiple_repos(repo_names, **kwargs)

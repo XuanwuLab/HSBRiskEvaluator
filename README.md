@@ -41,7 +41,6 @@ repo_info = await collect_all(
     pkt_type='debian',
     pkt_name='xz-utils',
     repo_name='tukaani-project/xz',
-    time_window=timedelta(days=365),
 )
 # Create evaluator
 evaluator = HSBRiskEvaluator(repo_info)

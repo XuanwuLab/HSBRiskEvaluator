@@ -10,6 +10,7 @@ from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor
 
 from hsbriskevaluator.collector.repo_info import Dependent, RepoInfo
+from hsbriskevaluator.collector.settings import CollectorSettings
 from hsbriskevaluator.utils.apt_utils import AptUtils
 
 logging.basicConfig(
@@ -21,16 +22,20 @@ logger = logging.getLogger(__name__)
 class APTCollector:
     """Collector for package dependencies using APT utilities"""
 
-    def __init__(self, max_concurrency: int = 3):
+    def __init__(self, max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None):
         """
         Initialize the dependency collector
 
         Args:
             max_concurrency: Maximum number of concurrent dependency collection operations
+            settings: Collector settings (if not provided, defaults will be used)
         """
-        self.max_concurrency = max_concurrency
-        self.apt_utils = AptUtils(max_concurrency=max_concurrency)
-        self.executor = ThreadPoolExecutor(max_workers=max_concurrency)
+        if settings is None:
+            settings = CollectorSettings()
+        self.settings = settings
+        self.max_concurrency = max_concurrency or settings.apt_max_concurrency
+        self.apt_utils = AptUtils(max_concurrency=self.max_concurrency)
+        self.executor = ThreadPoolExecutor(max_workers=self.max_concurrency)
 
     async def __aenter__(self):
         return self
@@ -224,7 +229,7 @@ class APTCollector:
 
 # Convenience function for single package dependency collection
 async def collect_package_dependencies(
-    package_name: str, max_concurrency: int = 3
+    package_name: str, max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None
 ) -> List[Dependent]:
     """
     Convenience function to collect dependencies for a single package
@@ -232,17 +237,18 @@ async def collect_package_dependencies(
     Args:
         package_name: The Debian package name
         max_concurrency: Maximum concurrency for operations
+        settings: Collector settings
 
     Returns:
         List[Dependent]: List of recursive dependencies
     """
-    async with APTCollector(max_concurrency) as collector:
+    async with APTCollector(max_concurrency, settings) as collector:
         return await collector.collect_dependencies(package_name)
 
 
 # Convenience function for enriching RepoInfo with dependencies
 async def enrich_repo_with_dependencies(
-    repo_info: RepoInfo, max_concurrency: int = 3
+    repo_info: RepoInfo, max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None
 ) -> RepoInfo:
     """
     Convenience function to enrich a RepoInfo object with dependencies
@@ -250,17 +256,18 @@ async def enrich_repo_with_dependencies(
     Args:
         repo_info: RepoInfo object to enrich
         max_concurrency: Maximum concurrency for operations
+        settings: Collector settings
 
     Returns:
         RepoInfo: Updated RepoInfo object with dependencies
     """
-    async with APTCollector(max_concurrency) as collector:
+    async with APTCollector(max_concurrency, settings) as collector:
         return await collector.enrich_repo_info_with_dependencies(repo_info)
 
 
 # Convenience function for enriching multiple RepoInfos with dependencies
 async def enrich_multiple_repos_with_dependencies(
-    repo_infos: List[RepoInfo], max_concurrency: int = 3
+    repo_infos: List[RepoInfo], max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None
 ) -> List[RepoInfo]:
     """
     Convenience function to enrich multiple RepoInfo objects with dependencies
@@ -268,9 +275,10 @@ async def enrich_multiple_repos_with_dependencies(
     Args:
         repo_infos: List of RepoInfo objects to enrich
         max_concurrency: Maximum concurrency for operations
+        settings: Collector settings
 
     Returns:
         List[RepoInfo]: List of updated RepoInfo objects with dependencies
     """
-    async with APTCollector(max_concurrency) as collector:
+    async with APTCollector(max_concurrency, settings) as collector:
         return await collector.enrich_multiple_repo_infos(repo_infos)

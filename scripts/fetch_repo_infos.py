@@ -107,7 +107,6 @@ async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore):
                 pkt_type="debian",
                 pkt_name=package_info["package"],
                 repo_name=get_repo_name(git_url),
-                time_window=timedelta(days=3650),
             )
 
             # Save the collected repository information

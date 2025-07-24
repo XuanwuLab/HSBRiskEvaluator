@@ -9,6 +9,7 @@ dependency information from APT.
 from typing import Optional
 from datetime import timedelta
 from .repo_info import Comment, Issue, PullRequest, RepoInfo, Dependent, User
+from .settings import CollectorSettings
 
 from .github_collector import (
     GitHubRepoCollector,
@@ -31,6 +32,8 @@ __all__ = [
     "PullRequest",
     "RepoInfo",
     "Dependent",
+    # Settings
+    "CollectorSettings",
     # GitHub collector
     "GitHubRepoCollector",
     "collect_github_repo_info",
@@ -47,15 +50,15 @@ async def collect_all(
     pkt_type: str,
     pkt_name: str,
     repo_name: str,
-    time_window: Optional[timedelta] = None,
+    settings: Optional[CollectorSettings] = None,
 ):
     """Collect all information about a repository"""
     repo_info = await collect_github_repo_info(
         repo_name=repo_name,
         pkt_type=pkt_type,
         pkt_name=pkt_name,
-        time_window=time_window
+        settings=settings
     )
     if pkt_type == "debian":
-        repo_info = await enrich_repo_with_dependencies(repo_info)
+        repo_info = await enrich_repo_with_dependencies(repo_info, settings=settings)
     return repo_info
