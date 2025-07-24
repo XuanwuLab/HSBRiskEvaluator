@@ -1,5 +1,7 @@
 from dotenv import load_dotenv
 
+from hsbriskevaluator.utils.file import get_cache_dir
+
 load_dotenv()
 
 from langchain_openai import ChatOpenAI
@@ -12,6 +14,11 @@ import os
 import instructor
 from pydantic import BaseModel
 from typing import Type
+cache_dir = get_cache_dir()
+
+import hishel
+
+storage = hishel.FileStorage(base_path=get_cache_dir()/"hishel")
 
 
 def get_model(model_name) -> BaseChatModel:
@@ -24,13 +31,17 @@ def get_model(model_name) -> BaseChatModel:
 
 def get_instructor_client():
     return instructor.from_openai(
-        OpenAI(base_url="https://openrouter.ai/api/v1"),
+        OpenAI(base_url="https://openrouter.ai/api/v1",
+        http_client=hishel.CacheClient(),       
+        ),
     )
 
 
 def get_async_instructor_client():
     return instructor.from_openai(
-        AsyncOpenAI(base_url="https://openrouter.ai/api/v1"),
+        AsyncOpenAI(base_url="https://openrouter.ai/api/v1",
+        http_client=hishel.AsyncCacheClient(),
+        ),
     )
 
 
