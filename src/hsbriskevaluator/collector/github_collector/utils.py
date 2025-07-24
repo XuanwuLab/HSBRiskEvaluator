@@ -5,6 +5,7 @@ Utility functions for GitHub collector operations.
 import asyncio
 import logging
 import subprocess
+import time
 from typing import List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -17,6 +18,7 @@ from git import Repo, GitCommandError
 
 from ..repo_info import Commit, User
 from ...utils.file import get_data_dir, is_binary
+from ...utils.progress import ProgressTracker
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +39,17 @@ class LocalRepoUtils:
         return await loop.run_in_executor(executor, func, *args)
 
     async def clone_repository(
-        self, repo_name: str, repo_url: str, executor: ThreadPoolExecutor
+        self, repo_name: str, repo_url: str, executor: ThreadPoolExecutor, 
+        progress_tracker: Optional[ProgressTracker] = None
     ) -> str:
         """
-        Clone repository to local data directory
+        Clone repository to local data directory with detailed progress tracking
 
         Args:
             repo_name: Repository name in format 'owner/repo'
             repo_url: Repository clone URL
             executor: ThreadPoolExecutor for async operations
+            progress_tracker: Optional progress tracker for step logging
 
         Returns:
             str: Relative path to cloned repository from data_dir, or None if failed
@@ -54,36 +58,64 @@ class LocalRepoUtils:
         def _clone_repo():
             settings = self.settings
             try:
+                # Step 1: Setup paths
+                if progress_tracker:
+                    step = progress_tracker.add_step("clone", "setup_paths", "Setup clone directories", f"Target: {repo_name}")
+                    
                 data_dir = get_data_dir()
                 repo_dir_name = repo_name.replace("/", "-")
                 local_repo_path = data_dir / repo_dir_name
+                
+                if progress_tracker:
+                    progress_tracker.complete_step("clone", "setup_paths", f"Path: {local_repo_path}")
 
-                # Remove existing directory if it exists
+                # Step 2: Clean existing directory
                 if local_repo_path.exists():
+                    if progress_tracker:
+                        step = progress_tracker.add_step("clone", "cleanup_existing", "Remove existing clone", f"Removing {local_repo_path}")
+                    
                     import shutil
-
                     shutil.rmtree(local_repo_path)
+                    
+                    if progress_tracker:
+                        progress_tracker.complete_step("clone", "cleanup_existing", "✓ Removed existing directory")
 
-                # Clone the repository
+                # Step 3: Execute git clone
+                if progress_tracker:
+                    step = progress_tracker.add_step("clone", "git_clone_exec", "Execute git clone command", f"Timeout: {settings.git_clone_timeout_seconds}s")
+                
                 cmd = ["git", "clone", repo_url, str(local_repo_path)]
+                logger.info(f"Executing git clone: {' '.join(cmd)}")
+                
+                start_time = time.time()
                 result = subprocess.run(
                     cmd, capture_output=True, text=True, timeout=settings.git_clone_timeout_seconds
                 )
+                clone_duration = time.time() - start_time
 
                 if result.returncode == 0:
-                    logger.info(f"Successfully cloned {repo_name} to {local_repo_path}")
+                    logger.info(f"Successfully cloned {repo_name} to {local_repo_path} in {clone_duration:.2f}s")
+                    if progress_tracker:
+                        progress_tracker.complete_step("clone", "git_clone_exec", f"✓ Cloned in {clone_duration:.2f}s")
                     return repo_dir_name  # Return relative path
                 else:
+                    error_msg = f"Git clone failed: {result.stderr}"
                     logger.error(f"Failed to clone {repo_name}: {result.stderr}")
+                    if progress_tracker:
+                        progress_tracker.complete_step("clone", "git_clone_exec", f"❌ {error_msg}")
                     return None
 
             except subprocess.TimeoutExpired:
+                error_msg = f"Clone timeout after {settings.git_clone_timeout_seconds}s"
                 logger.error(f"Timeout cloning repository {repo_name}")
-                raise TimeoutError(
-                    f"Cloning {repo_name} took too long and was aborted."
-                )
+                if progress_tracker:
+                    progress_tracker.complete_step("clone", "git_clone_exec", f"❌ {error_msg}")
+                raise TimeoutError(f"Cloning {repo_name} took too long and was aborted.")
             except Exception as e:
+                error_msg = f"Clone error: {str(e)}"
                 logger.error(f"Error cloning repository {repo_name}: {str(e)}")
+                if progress_tracker:
+                    progress_tracker.complete_step("clone", "git_clone_exec", f"❌ {error_msg}")
                 raise e
 
         return await self._run_in_executor(executor, _clone_repo)

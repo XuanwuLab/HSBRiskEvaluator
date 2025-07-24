@@ -141,41 +141,55 @@ class GitHubRepoCollector:
 
         try:
             # Initialize repository
-            with ProgressContext(progress_tracker, "init"):
-                repo = await self._run_in_executor(self._get_repository, repo_name)
-                data_dir = get_data_dir()
+            with ProgressContext(progress_tracker, "init") as init_ctx:
+                with init_ctx.step("github_auth", "Authenticate with GitHub API"):
+                    repo = await self._run_in_executor(self._get_repository, repo_name)
+                
+                with init_ctx.step("setup_dirs", "Setup local directories"):
+                    data_dir = get_data_dir()
 
             # Clone repository
-            with ProgressContext(progress_tracker, "clone"):
+            with ProgressContext(progress_tracker, "clone") as clone_ctx:
                 local_repo_dir = await self.local_utils.clone_repository(
-                    repo_name, repo.clone_url, self.executor
+                    repo_name, repo.clone_url, self.executor, progress_tracker
                 )
                 local_repo_path = data_dir / local_repo_dir
 
             # Collect data concurrently with progress tracking
             async def collect_basic_info():
-                with ProgressContext(progress_tracker, "basic_info"):
-                    return await self.data_collector.get_basic_info(repo)
+                with ProgressContext(progress_tracker, "basic_info") as ctx:
+                    with ctx.step("fetch_repo_info", "Fetch repository metadata"):
+                        return await self.data_collector.get_basic_info(repo)
 
             async def collect_issues():
-                with ProgressContext(progress_tracker, "issues"):
-                    return await self.data_collector.get_issues(repo)
+                with ProgressContext(progress_tracker, "issues") as ctx:
+                    max_issues = self.settings.get_max_issues()
+                    details = f"Max: {max_issues}" if max_issues else "Unlimited"
+                    with ctx.step("fetch_issues", "Fetch issues from GitHub API", details):
+                        return await self.data_collector.get_issues(repo)
 
             async def collect_prs():
-                with ProgressContext(progress_tracker, "prs"):
-                    return await self.data_collector.get_pull_requests(repo)
+                with ProgressContext(progress_tracker, "prs") as ctx:
+                    max_prs = self.settings.get_max_pull_requests() 
+                    details = f"Max: {max_prs}" if max_prs else "Unlimited"
+                    with ctx.step("fetch_prs", "Fetch pull requests from GitHub API", details):
+                        return await self.data_collector.get_pull_requests(repo)
 
             async def collect_binary_files():
-                with ProgressContext(progress_tracker, "binary_files"):
-                    return await self.data_collector.find_binary_files_local(local_repo_path)
+                with ProgressContext(progress_tracker, "binary_files") as ctx:
+                    with ctx.step("scan_files", "Scan local repository for binary files", f"Scanning {local_repo_path}"):
+                        return await self.data_collector.find_binary_files_local(local_repo_path)
 
             async def collect_workflows():
-                with ProgressContext(progress_tracker, "workflows"):
-                    return await self.data_collector.get_workflows(repo, local_repo_path)
+                with ProgressContext(progress_tracker, "workflows") as ctx:
+                    with ctx.step("fetch_workflows", "Fetch GitHub Actions workflows"):
+                        return await self.data_collector.get_workflows(repo, local_repo_path)
 
             async def collect_check_runs():
-                with ProgressContext(progress_tracker, "check_runs"):
-                    return await self.data_collector.get_check_runs(repo)
+                with ProgressContext(progress_tracker, "check_runs") as ctx:
+                    limit = self.settings.check_runs_commit_limit
+                    with ctx.step("fetch_check_runs", "Fetch check runs from recent commits", f"Last {limit} commits"):
+                        return await self.data_collector.get_check_runs(repo)
 
             # Execute all collection tasks concurrently
             (
@@ -195,26 +209,28 @@ class GitHubRepoCollector:
             )
 
             # Finalize repo info
-            with ProgressContext(progress_tracker, "finalize"):
-                events = []  # events not used in current implementation
-                commits = []  # commits not used to avoid large repo_info
+            with ProgressContext(progress_tracker, "finalize") as final_ctx:
+                with final_ctx.step("prepare_data", "Prepare collected data"):
+                    events = []  # events not used in current implementation
+                    commits = []  # commits not used to avoid large repo_info
 
-                # Create RepoInfo model
-                repo_info = RepoInfo(
-                    pkt_type=pkt_type,  # type: ignore
-                    pkt_name=pkt_name or repo_name.split("/")[-1],
-                    repo_id=repo_name.replace("/", "-"),
-                    url=repo.html_url,
-                    basic_info=basic_info,
-                    commit_list=commits,
-                    pr_list=pull_requests,
-                    issue_list=issues,
-                    binary_file_list=binary_files,
-                    local_repo_dir=local_repo_dir,
-                    event_list=events,
-                    workflow_list=workflows,
-                    check_run_list=check_runs,
-                )
+                with final_ctx.step("create_repoinfo", "Create final RepoInfo object", f"Combining data for {repo_name}"):
+                    # Create RepoInfo model
+                    repo_info = RepoInfo(
+                        pkt_type=pkt_type,  # type: ignore
+                        pkt_name=pkt_name or repo_name.split("/")[-1],
+                        repo_id=repo_name.replace("/", "-"),
+                        url=repo.html_url,
+                        basic_info=basic_info,
+                        commit_list=commits,
+                        pr_list=pull_requests,
+                        issue_list=issues,
+                        binary_file_list=binary_files,
+                        local_repo_dir=local_repo_dir,
+                        event_list=events,
+                        workflow_list=workflows,
+                        check_run_list=check_runs,
+                    )
 
             logger.info(f"Successfully collected repo info for {repo_name}")
             logger.info(f"  - Issues: {len(issues)}")
