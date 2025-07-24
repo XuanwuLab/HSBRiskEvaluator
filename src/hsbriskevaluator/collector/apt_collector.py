@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from hsbriskevaluator.collector.repo_info import Dependent, RepoInfo
 from hsbriskevaluator.collector.settings import CollectorSettings
 from hsbriskevaluator.utils.apt_utils import AptUtils
+from hsbriskevaluator.utils.progress import create_progress_tracker, ProgressContext, ProgressTracker
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -22,17 +23,20 @@ logger = logging.getLogger(__name__)
 class APTCollector:
     """Collector for package dependencies using APT utilities"""
 
-    def __init__(self, max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None):
+    def __init__(self, max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None, 
+                 show_progress: bool = True):
         """
         Initialize the dependency collector
 
         Args:
             max_concurrency: Maximum number of concurrent dependency collection operations
             settings: Collector settings (if not provided, defaults will be used)
+            show_progress: Whether to show progress tracking
         """
         if settings is None:
             settings = CollectorSettings()
         self.settings = settings
+        self.show_progress = show_progress
         self.max_concurrency = max_concurrency or settings.apt_max_concurrency
         self.apt_utils = AptUtils(max_concurrency=self.max_concurrency)
         self.executor = ThreadPoolExecutor(max_workers=self.max_concurrency)
@@ -120,38 +124,71 @@ class APTCollector:
         )
         return dependency_lists
 
-    async def enrich_repo_info_with_dependencies(self, repo_info: RepoInfo) -> RepoInfo:
+    async def enrich_repo_info_with_dependencies(self, repo_info: RepoInfo, 
+                                                 progress_tracker: Optional[ProgressTracker] = None) -> RepoInfo:
         """
         Enrich a RepoInfo object with dependency information
 
         Args:
             repo_info: RepoInfo object to enrich
+            progress_tracker: Optional progress tracker for external tracking
 
         Returns:
             RepoInfo: Updated RepoInfo object with dependencies
         """
-        if not repo_info.pkt_name:
-            logger.warning(
-                f"No package name provided for repo {repo_info.repo_id}, skipping dependency collection"
+        # Create progress tracker if not provided
+        if progress_tracker is None:
+            progress_tracker = create_progress_tracker(
+                name=f"Enriching {repo_info.repo_id}",
+                show_progress=self.show_progress
             )
-            return repo_info
+            show_summary = True
+        else:
+            show_summary = False
+            
+        # Setup todos
+        progress_tracker.add_todos([
+            ("validate", "Validate package name"),
+            ("collect", "Collect dependencies"),
+            ("enrich", "Enrich repository info")
+        ])
 
         try:
-            dependencies = await self.collect_dependencies(repo_info.pkt_name)
+            # Validate package name
+            with ProgressContext(progress_tracker, "validate"):
+                if not repo_info.pkt_name:
+                    logger.warning(
+                        f"No package name provided for repo {repo_info.repo_id}, skipping dependency collection"
+                    )
+                    progress_tracker.skip_todo("collect")
+                    progress_tracker.skip_todo("enrich")
+                    return repo_info
 
-            # Create a new RepoInfo object with updated dependencies
-            updated_repo_info = repo_info.model_copy()
-            updated_repo_info.dependent_list = dependencies
+            # Collect dependencies
+            with ProgressContext(progress_tracker, "collect"):
+                dependencies = await self.collect_dependencies(repo_info.pkt_name)
+
+            # Enrich repo info
+            with ProgressContext(progress_tracker, "enrich"):
+                # Create a new RepoInfo object with updated dependencies
+                updated_repo_info = repo_info.model_copy()
+                updated_repo_info.dependent_list = dependencies
 
             logger.info(
                 f"Successfully enriched {repo_info.repo_id} with {len(dependencies)} dependencies"
             )
+            
+            if show_summary:
+                progress_tracker.print_summary()
+                
             return updated_repo_info
 
         except Exception as e:
             logger.error(
                 f"Failed to enrich repo {repo_info.repo_id} with dependencies: {str(e)}"
             )
+            if show_summary:
+                progress_tracker.print_summary()
             # Return original repo_info if dependency collection fails
             return repo_info
 
@@ -229,7 +266,8 @@ class APTCollector:
 
 # Convenience function for single package dependency collection
 async def collect_package_dependencies(
-    package_name: str, max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None
+    package_name: str, max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None,
+    show_progress: bool = True
 ) -> List[Dependent]:
     """
     Convenience function to collect dependencies for a single package
@@ -238,17 +276,19 @@ async def collect_package_dependencies(
         package_name: The Debian package name
         max_concurrency: Maximum concurrency for operations
         settings: Collector settings
+        show_progress: Whether to show progress tracking
 
     Returns:
         List[Dependent]: List of recursive dependencies
     """
-    async with APTCollector(max_concurrency, settings) as collector:
+    async with APTCollector(max_concurrency, settings, show_progress) as collector:
         return await collector.collect_dependencies(package_name)
 
 
 # Convenience function for enriching RepoInfo with dependencies
 async def enrich_repo_with_dependencies(
-    repo_info: RepoInfo, max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None
+    repo_info: RepoInfo, max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None,
+    show_progress: bool = True
 ) -> RepoInfo:
     """
     Convenience function to enrich a RepoInfo object with dependencies
@@ -257,17 +297,19 @@ async def enrich_repo_with_dependencies(
         repo_info: RepoInfo object to enrich
         max_concurrency: Maximum concurrency for operations
         settings: Collector settings
+        show_progress: Whether to show progress tracking
 
     Returns:
         RepoInfo: Updated RepoInfo object with dependencies
     """
-    async with APTCollector(max_concurrency, settings) as collector:
+    async with APTCollector(max_concurrency, settings, show_progress) as collector:
         return await collector.enrich_repo_info_with_dependencies(repo_info)
 
 
 # Convenience function for enriching multiple RepoInfos with dependencies
 async def enrich_multiple_repos_with_dependencies(
-    repo_infos: List[RepoInfo], max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None
+    repo_infos: List[RepoInfo], max_concurrency: Optional[int] = None, settings: Optional[CollectorSettings] = None,
+    show_progress: bool = True
 ) -> List[RepoInfo]:
     """
     Convenience function to enrich multiple RepoInfo objects with dependencies
@@ -276,9 +318,10 @@ async def enrich_multiple_repos_with_dependencies(
         repo_infos: List of RepoInfo objects to enrich
         max_concurrency: Maximum concurrency for operations
         settings: Collector settings
+        show_progress: Whether to show progress tracking
 
     Returns:
         List[RepoInfo]: List of updated RepoInfo objects with dependencies
     """
-    async with APTCollector(max_concurrency, settings) as collector:
+    async with APTCollector(max_concurrency, settings, show_progress) as collector:
         return await collector.enrich_multiple_repo_infos(repo_infos)
