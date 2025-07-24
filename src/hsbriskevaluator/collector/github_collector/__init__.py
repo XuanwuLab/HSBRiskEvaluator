@@ -27,6 +27,7 @@ from ...utils.file import get_data_dir
 from ...utils.progress import create_progress_tracker, ProgressContext, ProgressTracker
 from .data_collectors import GitHubDataCollector
 from .utils import LocalRepoUtils
+from .token_manager import GitHubTokenManager
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class GitHubRepoCollector:
         Initialize the GitHub collector
 
         Args:
-            github_token: GitHub API token. If not provided, will use GITHUB_TOKEN env var
+            github_token: GitHub API token. If not provided, will use GITHUB_TOKEN env var or settings
             settings: Collector settings (if not provided, defaults will be used)
             show_progress: Whether to show progress tracking
         """
@@ -50,23 +51,62 @@ class GitHubRepoCollector:
         self.settings = settings
         self.show_progress = show_progress
         
-        self.token = github_token or os.getenv("GITHUB_TOKEN")
-        if not self.token:
+        # Setup token management
+        tokens = []
+        
+        # Priority: 1. Direct parameter, 2. Settings multi-tokens, 3. GITHUB_TOKEN env var
+        if github_token:
+            tokens = [github_token]
+        elif settings.github_tokens:
+            tokens = settings.github_tokens
+        else:
+            env_token = os.getenv("GITHUB_TOKEN")
+            if env_token:
+                tokens = [env_token]
+        
+        if not tokens:
             raise ValueError(
-                "GitHub token is required. Set GITHUB_TOKEN environment variable or pass token directly."
+                "GitHub token(s) required. Set GITHUB_TOKEN environment variable, "
+                "pass token directly, or configure github_tokens in settings."
             )
-
-        self.github = Github(self.token)
+        
+        # Initialize token manager
+        self.token_manager = GitHubTokenManager(tokens, settings.github_proxy_url)
+        
+        # For backward compatibility, expose a github client property
+        self._current_github = None
+        
         self.executor = ThreadPoolExecutor(max_workers=settings.github_max_workers)
-        self.data_collector = GitHubDataCollector(self.executor, settings)
+        self.data_collector = GitHubDataCollector(self.executor, settings, self.token_manager)
         self.local_utils = LocalRepoUtils(settings)
+    
+    @property
+    def github(self) -> Github:
+        """Get current GitHub client (for backward compatibility)"""
+        if self._current_github is None:
+            self._current_github = self.token_manager.get_github_client()
+        return self._current_github
+    
+    def _get_fresh_github_client(self) -> Github:
+        """Get a fresh GitHub client, potentially with a different token"""
+        self._current_github = self.token_manager.get_github_client()
+        return self._current_github
+    
+    def get_token_stats(self) -> dict:
+        """Get usage statistics for all configured tokens"""
+        return self.token_manager.get_token_stats()
+    
+    def rotate_token(self) -> None:
+        """Manually rotate to the next token"""
+        self.token_manager.rotate_token()
+        self._current_github = None  # Force refresh on next access
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *args):
         self.executor.shutdown(wait=True)
-        self.github.close()
+        self.token_manager.close_all_clients()
 
     @retry(
         retry=retry_if_exception_type(RateLimitExceededException),
@@ -74,8 +114,16 @@ class GitHubRepoCollector:
         wait=wait_exponential(multiplier=1, min=60, max=300),
     )
     def _get_repository(self, repo_name: str) -> Repository:
-        """Get repository with retry logic for rate limiting"""
-        return self.github.get_repo(repo_name)
+        """Get repository with retry logic for rate limiting and token rotation"""
+        try:
+            github_client = self._get_fresh_github_client()
+            return github_client.get_repo(repo_name)
+        except RateLimitExceededException as e:
+            # Mark current token as rate limited and rotate
+            self.token_manager.handle_rate_limit()
+            self.token_manager.rotate_token()
+            logger.warning(f"Rate limit exceeded, rotated to next token")
+            raise e
 
     async def _run_in_executor(self, func, *args):
         """Run blocking GitHub API calls in executor"""

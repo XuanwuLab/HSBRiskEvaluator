@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List, Dict
 from datetime import timedelta
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,6 +10,8 @@ class CollectorSettings(BaseSettings):
     
     # GitHub Collector settings
     github_max_workers: int = 5
+    github_tokens: Optional[List[str]] = None  # Multiple tokens for load balancing
+    github_proxy_url: Optional[str] = None  # HTTP/HTTPS proxy URL
     
     # Local repository settings
     git_clone_timeout_seconds: int = 300

@@ -8,6 +8,7 @@ from typing import List, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..settings import CollectorSettings
+    from .token_manager import GitHubTokenManager
 from datetime import datetime, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -34,12 +35,14 @@ logger = logging.getLogger(__name__)
 class GitHubDataCollector:
     """Handles data collection from GitHub API and local repositories"""
 
-    def __init__(self, executor: ThreadPoolExecutor, settings: Optional["CollectorSettings"] = None):
+    def __init__(self, executor: ThreadPoolExecutor, settings: Optional["CollectorSettings"] = None, 
+                 token_manager: Optional["GitHubTokenManager"] = None):
         self.executor = executor
         if settings is None:
             from ..settings import CollectorSettings
             settings = CollectorSettings()
         self.settings = settings
+        self.token_manager = token_manager
         self.converter = GitHubConverter()
         self.local_utils = LocalRepoUtils(self.settings)
 
