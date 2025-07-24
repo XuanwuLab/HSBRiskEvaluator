@@ -18,7 +18,7 @@ class HSBRiskEvaluator(BaseEvaluator):
     def __init__(
         self,
         repo_info: RepoInfo,
-        settings: EvaluatorSettings = None,
+        settings: Optional[EvaluatorSettings] = None,
     ):
         super().__init__(repo_info)
         if settings is None:
@@ -26,12 +26,8 @@ class HSBRiskEvaluator(BaseEvaluator):
         self.settings = settings
 
         # Initialize individual evaluators
-        self.community_evaluator = CommunityEvaluator(
-            repo_info, self.settings
-        )
-        self.payload_evaluator = PayloadEvaluator(
-            repo_info, self.settings
-        )
+        self.community_evaluator = CommunityEvaluator(repo_info, self.settings)
+        self.payload_evaluator = PayloadEvaluator(repo_info, self.settings)
         self.dependency_evaluator = DependencyEvaluator(repo_info, self.settings)
         self.CI_evaluator = CIEvaluator(repo_info, self.settings)
 
