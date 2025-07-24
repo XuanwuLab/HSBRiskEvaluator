@@ -54,16 +54,19 @@ class GitHubRepoCollector:
         # Setup token management
         tokens = []
         
-        # Priority: 1. Direct parameter, 2. Settings multi-tokens, 3. GITHUB_TOKEN env var
         if github_token:
-            tokens = [github_token]
-        elif settings.github_tokens:
-            tokens = settings.github_tokens
-        else:
-            env_token = os.getenv("GITHUB_TOKEN")
-            if env_token:
-                tokens = [env_token]
+            tokens.append(github_token)
+        if settings.github_tokens:
+            tokens += settings.github_tokens
+        env_token = os.getenv("GITHUB_TOKEN")
+        if env_token:
+            tokens.append(env_token)
         
+        # Remove duplicates 
+        tokens = list(set(tokens))
+        logger.info(f"Using {len(tokens)} GitHub tokens for API requests")
+
+        # Priority: 1. Direct parameter, 2. Settings multi-tokens, 3. GITHUB_TOKEN env var
         if not tokens:
             raise ValueError(
                 "GitHub token(s) required. Set GITHUB_TOKEN environment variable, "

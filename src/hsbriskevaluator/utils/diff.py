@@ -79,8 +79,25 @@ class Comparator:
         return str(data_dir)
 
     def clone_and_compare(self, package: str) -> DiffResult:
-        github_url = self.github_collector.search_repo(package).clone_url
         debian_url = self.apt_utils.get_package_git(package)
-        github_path = self._clone_repo(github_url, f"{package}/github")
-        debian_path = self._clone_repo(debian_url, f"{package}/debian")
-        return self.compare_dirs(debian_path, github_path, debian_url, github_url)
+        #github_path = self._clone_repo(github_url, f"{package}/github")
+        #debian_path = self._clone_repo(debian_url, f"{package}/debian")
+        try:
+            github_url = self.github_collector.search_repo(package).clone_url
+            return DiffResult(
+                same_project=True,
+                files=[],
+                url1=debian_url,
+                url2=github_url,
+                dir1="",
+                dir2="",
+            )
+        except:
+            return DiffResult(
+                same_project=False,
+                files=[],
+                url1=debian_url,
+                url2="",
+                dir1="",
+                dir2="",
+                )

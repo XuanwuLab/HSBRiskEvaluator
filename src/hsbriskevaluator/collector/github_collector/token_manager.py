@@ -67,20 +67,10 @@ class GitHubTokenManager:
             if token_info['github_client'] is None:
                 # Create GitHub client with proxy if specified
                 if self.proxy_url:
-                    import requests
-                    session = requests.Session()
-                    session.proxies = {
-                        'http': self.proxy_url,
-                        'https': self.proxy_url
-                    }
-                    token_info['github_client'] = Github(
-                        auth=self._current_token,
-                        per_page=100,
-                        session=session
-                    )
+                    raise NotImplementedError("Proxy support is not implemented yet")
                 else:
                     token_info['github_client'] = Github(
-                        auth=self._current_token,
+                        login_or_token=self._current_token,
                         per_page=100
                     )
             

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict
 import logging
 
+from hsbriskevaluator.collector.github_collector import CollectorSettings
 from hsbriskevaluator.utils.file import get_data_dir
 from hsbriskevaluator.collector import collect_all
 
@@ -59,7 +60,7 @@ def get_repo_name(git_url: str) -> str:
         raise
 
 
-async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore):
+async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore, settings: CollectorSettings):
     """
     Collect repository information for a single package file and update it if needed.
 
@@ -101,12 +102,12 @@ async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore):
 
             if not repo_info_path.parent.exists():
                 repo_info_path.parent.mkdir(parents=True, exist_ok=True)
-
             # Collect repository information
             repo_info = await collect_all(
                 pkt_type="debian",
                 pkt_name=package_info["package"],
                 repo_name=get_repo_name(git_url),
+                settings=settings,
             )
 
             # Save the collected repository information
@@ -115,6 +116,7 @@ async def collect_one(package_info: Dict, semaphore: asyncio.Semaphore):
         except Exception as e:
             # Log errors for individual packages
             logger.error(f"Error processing package {package_name}: {e}")
+            raise e
 
 
 async def collect_repo_info(package_file: Path, max_concurrency: int = 5):
@@ -128,9 +130,16 @@ async def collect_repo_info(package_file: Path, max_concurrency: int = 5):
     package_dict_by_name = load_yaml(package_file)
     semaphore = asyncio.Semaphore(max_concurrency)
 
+    github_tokens = []
+    with open(Path(__file__).parent.parent / ".github_tokens", "r") as f:
+        github_tokens = [line.strip() for line in f if line.strip()]
+    settings = CollectorSettings(
+        github_tokens=github_tokens,
+    )
+    logger.info(f"github_tokens: {len(github_tokens)} tokens loaded.")
     # Create tasks for each package
     tasks = [
-        collect_one(package_info, semaphore)
+        collect_one(package_info, semaphore, settings)
         for package_name, package_info in package_dict_by_name.items()
     ]
 
