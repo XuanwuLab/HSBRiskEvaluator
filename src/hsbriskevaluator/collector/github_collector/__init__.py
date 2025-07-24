@@ -207,21 +207,21 @@ class GitHubRepoCollector:
             async def collect_basic_info():
                 with ProgressContext(progress_tracker, "basic_info") as ctx:
                     with ctx.step("fetch_repo_info", "Fetch repository metadata"):
-                        return await self.data_collector.get_basic_info(repo)
+                        return await self.data_collector.get_basic_info(repo, progress_tracker)
 
             async def collect_issues():
                 with ProgressContext(progress_tracker, "issues") as ctx:
                     max_issues = self.settings.get_max_issues()
                     details = f"Max: {max_issues}" if max_issues else "Unlimited"
                     with ctx.step("fetch_issues", "Fetch issues from GitHub API", details):
-                        return await self.data_collector.get_issues(repo)
+                        return await self.data_collector.get_issues(repo, progress_tracker)
 
             async def collect_prs():
                 with ProgressContext(progress_tracker, "prs") as ctx:
                     max_prs = self.settings.get_max_pull_requests() 
                     details = f"Max: {max_prs}" if max_prs else "Unlimited"
                     with ctx.step("fetch_prs", "Fetch pull requests from GitHub API", details):
-                        return await self.data_collector.get_pull_requests(repo)
+                        return await self.data_collector.get_pull_requests(repo, progress_tracker)
 
             async def collect_binary_files():
                 with ProgressContext(progress_tracker, "binary_files") as ctx:
@@ -231,13 +231,13 @@ class GitHubRepoCollector:
             async def collect_workflows():
                 with ProgressContext(progress_tracker, "workflows") as ctx:
                     with ctx.step("fetch_workflows", "Fetch GitHub Actions workflows"):
-                        return await self.data_collector.get_workflows(repo, local_repo_path)
+                        return await self.data_collector.get_workflows(repo, local_repo_path, progress_tracker)
 
             async def collect_check_runs():
                 with ProgressContext(progress_tracker, "check_runs") as ctx:
                     limit = self.settings.check_runs_commit_limit
                     with ctx.step("fetch_check_runs", "Fetch check runs from recent commits", f"Last {limit} commits"):
-                        return await self.data_collector.get_check_runs(repo)
+                        return await self.data_collector.get_check_runs(repo, progress_tracker)
 
             # Execute all collection tasks concurrently
             (
