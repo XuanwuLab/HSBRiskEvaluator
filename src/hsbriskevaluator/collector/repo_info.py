@@ -135,9 +135,11 @@ class RepoInfo(BaseModel):
     )
     issue_list: list[Issue] = Field(description="List of issues in the repository")
     issue_without_comment_list: list[Issue] = Field(
+        default_factory=list,
         description="List of issues without comments in the repository"
     )
     pr_without_comment_list: list[PullRequest] = Field(
+        default_factory=list,
         description="List of pull requests without comments in the repository"
     )
     binary_file_list: list[str] = Field(

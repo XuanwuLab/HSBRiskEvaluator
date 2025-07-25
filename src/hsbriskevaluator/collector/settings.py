@@ -22,14 +22,14 @@ class CollectorSettings(BaseSettings):
     global_since_days: Optional[int] = None
 
     # Specific limits for each data type (None falls back to global)
-    issues_max_count: Optional[int] = 300
+    issues_max_count: Optional[int] = 100
     issues_since_days: Optional[int] = None
-    issues_without_comment_max_count: Optional[int] = None
+    issues_without_comment_max_count: Optional[int] = 1
     issues_without_comment_since_days: Optional[int] = None
 
     pull_requests_max_count: Optional[int] = None
     pull_requests_since_days: Optional[int] = None
-    pull_requests_without_comment_max_count: Optional[int] = None
+    pull_requests_without_comment_max_count: Optional[int] = 1
     pull_requests_without_comment_since_days: Optional[int] = None
     
     # Separate limits for merged, closed, and open PRs
