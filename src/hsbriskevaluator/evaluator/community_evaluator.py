@@ -290,7 +290,7 @@ class CommunityEvaluator(BaseEvaluator):
         logger.debug(
             f"Average time to become reviewer: {mean(activities) if len(activities) else 0.0} PRs"
         )
-        return mean(activities) if len(activities) else 0.0
+        return mean(activities) if len(activities) else -1.0
 
     def _analyze_required_reviewers(self) -> dict[int, float]:
         """Estimate minimum required reviewers for PR approval"""

@@ -55,6 +55,8 @@ You will be given a list of binary file paths from a software repository. Your t
     * `file_type`: A string categorizing the file's purpose (e.g., "test_resource", "documentation_image", "build_artifact", "vendored_dependency", "application_icon").
     * `is_test_file`: A boolean (`true` or `false`) indicating if the file appears to be a test file or test resource.
     * `is_documentation`: A boolean (`true` or `false`) indicating if the file is part of the documentation.
+    * `is_code`: A boolean (`true` or `false`) indicating if the file is part of the codebase.
+    * `is_asset`: A boolean (`true` or `false`) indicating if the file is part of the assets.
     * `reason`: A brief string explaining your classification based on the path's structure and conventions.
 3.  Combine all the individual JSON objects into a single JSON array for the final output.
 </requirement>
@@ -70,6 +72,7 @@ You will be given a list of binary file paths from a software repository. Your t
     "file_type": "test_resource",
     "is_test_file": true,
     "is_documentation": false,
+    "is_code": false
     "file_path": "src/test/data/golden_files/approved_user_avatar.jpg"
   },
   {
@@ -77,6 +80,7 @@ You will be given a list of binary file paths from a software repository. Your t
     "file_type": "documentation_image",
     "is_test_file": false,
     "is_documentation": true,
+    "is_code": false,
     "file_path": "docs/media/screenshot-v1.png"
   },
 ]
@@ -150,23 +154,91 @@ PR_CONSISTENCY_ANALYSIS_MODEL_ID = "openai/gpt-4.1"
 
 # CI Evaluator Prompts
 CI_WORKFLOW_ANALYSIS_PROMPT = """
-Analyze if this GitHub workflow seems to have potential command injection vulnerabilities:
+<task>
+I need to analyze a GitHub Actions workflow file for potential command injection vulnerabilities. The analysis should identify common security risks and provide a structured assessment of its danger level.
+</task>
 
-{workflow_content}
+<requirement>
+1.  Carefully examine the provided `{workflow_content}` for security vulnerabilities.
+2.  Pay close attention to these risk factors:
+    * **Dangerous Triggers:** Use of `pull_request_target` or `workflow_run`, which can run with elevated permissions on untrusted code.
+    * **Unsanitized Input:** Direct use of input from sources like issue titles/bodies, pull request titles/bodies, or commit messages within scripts.
+    * **Inline Scripts:** `run` steps that construct shell commands by concatenating strings with user-provided input.
+    * **Unmasked Secrets:** Use of sensitive values like tokens or credentials directly in the workflow instead of using GitHub Secrets.
+3.  Your final output **must be a single JSON object** and nothing else. Do not include any explanatory text outside of the JSON structure.
+4.  The JSON object must contain exactly these three keys:
+    * `is_dangerous`: A boolean (`true` or `false`).
+    * `danger_level`: A float between 0.0 (perfectly safe) and 1.0 (extremely dangerous).
+    * `reason`: A concise string explaining the identified vulnerabilities or why the workflow is considered safe.
+</requirement>
 
-Consider factors like:
-- Use dangerous triggers, like pull_request_target, workflow_run
-- Use input from sources like issue titles, pull request bodies, or commit messages without proper sanitization.
-- Use inline shell commands or scripts that execute user input directly.
-- Use sensitive values like tokens or credentials, without masking via GitHub Secrets.
+<example>
+<example_1>
+    <workflow_content>
+name: CI
+on:
+  push:
+    branches: [ "main" ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run a one-line script
+        run: echo Hello, world!
+    </workflow_content>
+    <response>
+{
+  "is_dangerous": false,
+  "danger_level": 0.0,
+  "reason": "The workflow is triggered on push to a protected branch and only runs a hardcoded, safe command. It does not process external input."
+}
+    </response>
+</example_1>
 
-Respond with a JSON object containing:
-- is_dangerous: boolean
-- danger_level: float (0.0 to 1.0, where 0.0 is safe and 1.0 is very dangerous)
-- reason: string (brief explanation)
+<example_2>
+    <workflow_content>
+name: Label PR
+on:
+  pull_request:
+    types: [opened]
+jobs:
+  labeler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Greet user
+        run: echo "Thanks for the PR, ${{ github.actor }}!"
+    </workflow_content>
+    <response>
+{
+  "is_dangerous": true,
+  "danger_level": 0.4,
+  "reason": "The workflow uses input from 'github.actor' directly in a script. While 'echo' is generally safe, this pattern is risky and could be exploited if the command were more complex."
+}
+    </response>
+</example_2>
 
-Don't include any other text, just the JSON response.
+<example_3>
+    <workflow_content>
+name: "Run user script"
+on: pull_request_target
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run PR Body
+        run: |
+          ${{ github.event.pull_request.body }}
+    </workflow_content>
+    <response>
+{
+  "is_dangerous": true,
+  "danger_level": 1.0,
+  "reason": "This workflow uses the dangerous 'pull_request_target' trigger and executes the unsanitized pull request body directly in the shell, creating a severe command injection vulnerability."
+}
+    </response>
+</example_3>
+</example>
 """
 
-CI_WORKFLOW_ANALYSIS_MODEL_ID = "anthropic/claude-3.5-sonnet"
-
+CI_WORKFLOW_ANALYSIS_MODEL_ID = "openai/gpt-4.1"

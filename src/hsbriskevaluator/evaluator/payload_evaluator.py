@@ -42,8 +42,12 @@ class PayloadEvaluator(BaseEvaluator):
         binary_files_count=len(self.repo_info.binary_file_list)
         allows_binary_test_files = any(detail.is_test_file for detail in files_detail)
         allows_binary_document_files = any(detail.is_documentation for detail in files_detail)
+        allows_binary_code_files = any(detail.is_code for detail in files_detail)
+        allows_binary_assets_files = any(detail.is_asset for detail in files_detail)
         return PayloadHiddenEvalResult(allows_binary_test_files=allows_binary_test_files,
             allows_binary_document_files=allows_binary_document_files,
+            allows_binary_code_files=allows_binary_code_files,
+            allows_binary_assets_files=allows_binary_assets_files,
             binary_files_count=binary_files_count,
             details=files_detail
         )

@@ -8,15 +8,19 @@ from hsbriskevaluator.evaluator.base import (
     WorkflowAnalysis,
     DangerousTriggerAnalysis,
 )
+from typing import Optional
+from pydantic import ValidationError
 from hsbriskevaluator.collector.repo_info import RepoInfo, Workflow
 from hsbriskevaluator.evaluator.settings import EvaluatorSettings
 from hsbriskevaluator.utils.llm import get_async_instructor_client, call_llm_with_client
+from hsbriskevaluator.utils.file import get_data_dir, is_binary
 from hsbriskevaluator.utils.prompt import (
     CI_WORKFLOW_ANALYSIS_PROMPT,
     CI_WORKFLOW_ANALYSIS_MODEL_ID,
 )
 import yaml
 
+llm_client = get_async_instructor_client()
 logger = logging.getLogger(__name__)
 
 
@@ -26,9 +30,11 @@ class CIEvaluator(BaseEvaluator):
     def __init__(
         self,
         repo_info: RepoInfo,
-        settings: EvaluatorSettings,
+        settings: Optional[EvaluatorSettings] = None,
     ):
         super().__init__(repo_info)
+        if settings is None:
+            settings = EvaluatorSettings()
         self.settings = settings
         self.llm_model_name = settings.ci_workflow_analysis_model_id
         self.max_concurrency = settings.ci_max_concurrency
@@ -78,6 +84,7 @@ class CIEvaluator(BaseEvaluator):
 
         # Execute all tasks concurrently with rate limiting
         results = await asyncio.gather(*tasks, return_exceptions=True)
+
 
         # Handle any exceptions and return valid results
         valid_results = []
@@ -188,28 +195,32 @@ class CIEvaluator(BaseEvaluator):
     ) -> DangerousTriggerAnalysis:
         """Use LLM to analyze if workflow has potential command injection vulnerabilities"""
         async with self._semaphore:  # Rate limiting
-            messages = [
-                {
-                    "role": "user",
-                    "content": CI_WORKFLOW_ANALYSIS_PROMPT.format(
-                        workflow_content=workflow.content
-                    ),
-                }
-            ]
-
             try:
-                analysis = await call_llm_with_client(
-                    client=self.client,
-                    model_id=self.llm_model_name,
-                    messages=messages,
+                response = await llm_client.chat.completions.create(
+                    model=CI_WORKFLOW_ANALYSIS_MODEL_ID,
+                    messages=[
+                        {"role": "system", "content": CI_WORKFLOW_ANALYSIS_PROMPT},
+                        {"role": "user", "content": f"Workflow file:{workflow.content}"}
+                    ],
                     response_model=DangerousTriggerAnalysis,
+                    extra_body={"provider": {"require_parameters": True}},
                 )
-                return analysis
-
-            except Exception as e:
-                logger.warning(f"LLM analysis failed for {workflow.name}: {str(e)}")
+                return response
+            except ValidationError as e:
+                logger.error(
+                    f"Validation error while checking {workflow.path}: {e}")
                 return DangerousTriggerAnalysis(
                     is_dangerous=False,
                     danger_level=0.0,
-                    reason=f"LLM analysis failed: {str(e)}",
+                    reason=f"LLM analysis validation error: {e}",
                 )
+
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error while checking {workflow.path}: {e}")
+                return DangerousTriggerAnalysis(
+                    is_dangerous=False,
+                    danger_level=0.0,
+                    reason=f"LLM analysis failed: {e}",
+                )
+
