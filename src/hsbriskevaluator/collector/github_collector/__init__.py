@@ -92,17 +92,28 @@ class GitHubRepoCollector:
                 logger.info(f"Starting concurrent collection for {repo_name}")
                 (
                     issues,
-                    pull_requests,
+                    issues_without_comment,
+                    merged_pull_requests,
+                    closed_pull_requests,
+                    open_pull_requests,
+                    pr_without_comment,
                     binary_files,
                     workflows,
                     check_runs,
                 ) = await asyncio.gather(
                     data_collector.get_issues(repo_name),
-                    data_collector.get_pull_requests(repo_name),
+                    data_collector.get_issues_without_comment(repo_name),
+                    data_collector.get_merged_pull_requests(repo_name),
+                    data_collector.get_closed_pull_requests(repo_name),
+                    data_collector.get_open_pull_requests(repo_name),
+                    data_collector.get_pull_requests_without_comment(repo_name),
                     data_collector.find_binary_files_local(local_repo_path),
                     data_collector.get_workflows(repo_name, local_repo_path),
                     data_collector.get_check_runs(repo_name),
                 )
+
+                # Combine all pull requests as requested
+                pull_requests = merged_pull_requests + closed_pull_requests + open_pull_requests
 
                 # Finalize repo info  
                 logger.info(f"Finalizing repository info for {repo_name}")
@@ -118,6 +129,8 @@ class GitHubRepoCollector:
                     commit_list=commits,
                     pr_list=pull_requests,
                     issue_list=issues,
+                    issue_without_comment_list=issues_without_comment,
+                    pr_without_comment_list=pr_without_comment,
                     binary_file_list=binary_files,
                     local_repo_dir=local_repo_dir,
                     event_list=events,
@@ -127,7 +140,9 @@ class GitHubRepoCollector:
 
             logger.info(f"Successfully collected repo info for {repo_name}")
             logger.info(f"  - Issues: {len(issues)}")
-            logger.info(f"  - Pull Requests: {len(pull_requests)}")
+            logger.info(f"  - Issues without comment: {len(issues_without_comment)}")
+            logger.info(f"  - Pull Requests: {len(pull_requests)} (merged: {len(merged_pull_requests)}, closed: {len(closed_pull_requests)}, open: {len(open_pull_requests)})")
+            logger.info(f"  - Pull Requests without comment: {len(pr_without_comment)}")
             logger.info(f"  - Commits: {len(commits)}")
             logger.info(f"  - Events: {len(events)}")
             logger.info(f"  - Binary Files: {len(binary_files)}")

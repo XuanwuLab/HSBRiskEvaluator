@@ -89,11 +89,13 @@ class GitHubConverter:
             return None
 
     @staticmethod
-    def to_issue(issue: GithubIssue) -> Issue:
+    def to_issue(issue: GithubIssue, with_comment: bool = True) -> Issue:
         """Convert PyGithub Issue to Issue model"""
-        comments = [
-            GitHubConverter.to_comment(comment) for comment in issue.get_comments()
-        ]
+        comments = []
+        if with_comment:
+            comments = [
+                GitHubConverter.to_comment(comment) for comment in issue.get_comments()
+            ]
 
         # Ensure status is valid for Issue model
         status = "open" if issue.state == "open" else "closed"
@@ -111,7 +113,7 @@ class GitHubConverter:
         )
 
     @staticmethod
-    def to_pull_request(pr: GithubPR) -> PullRequest:
+    def to_pull_request(pr: GithubPR, with_comment: bool = True) -> PullRequest:
         """Convert PyGithub PullRequest to PullRequest model"""
         # Get the last approving review
         approvers: list[User] = []
@@ -140,11 +142,13 @@ class GitHubConverter:
         else:
             status = "closed"
 
-        comments = [
-            GitHubConverter.to_comment(comment) for comment in pr.get_comments()
-        ] + [GitHubConverter.to_comment(comment) for comment in pr.get_issue_comments()]
+        comments = []
+        if with_comment:
+            comments = [
+                GitHubConverter.to_comment(comment) for comment in pr.get_comments()
+            ] + [GitHubConverter.to_comment(comment) for comment in pr.get_issue_comments()]
+            comments = sorted(comments, key=lambda x: datetime.fromisoformat(x.timestamp))
 
-        comments = sorted(comments, key=lambda x: datetime.fromisoformat(x.timestamp))
         # Handle timestamps safely
         created_at_str = pr.created_at.isoformat() if pr.created_at else ""
         updated_at_str = pr.updated_at.isoformat() if pr.updated_at else ""

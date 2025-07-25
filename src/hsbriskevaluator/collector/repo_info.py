@@ -110,7 +110,7 @@ class BasicInfo(BaseModel):
     stargazers_count: int = Field(description="number of stars in the repository")
     watchers_count: int = Field(description="number of watchers in the repository")
     forks_count: int = Field(description="number of forks in the repository")
-    html_url: str = Field(
+    url: str = Field(
         description="HTML URL of the repository, usually the same as repo_id",
         default="",  # Default to empty string if not available
     )
@@ -128,13 +128,18 @@ class RepoInfo(BaseModel):
     repo_id: str = Field(
         description="unique identifier for the repository, usually the orgname-repo_name format"
     )
-    url: str = Field(description="URL of the repository")
     basic_info: BasicInfo = Field(description="Basic information of the repository")
     commit_list: list[Commit] = Field(description="List of commits in the repository")
     pr_list: list[PullRequest] = Field(
         description="List of pull requests in the repository"
     )
     issue_list: list[Issue] = Field(description="List of issues in the repository")
+    issue_without_comment_list: list[Issue] = Field(
+        description="List of issues without comments in the repository"
+    )
+    pr_without_comment_list: list[PullRequest] = Field(
+        description="List of pull requests without comments in the repository"
+    )
     binary_file_list: list[str] = Field(
         description="List of binary files in the repository"
     )

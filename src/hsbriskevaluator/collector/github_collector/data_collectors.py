@@ -5,7 +5,7 @@ Data collection methods for GitHub repository information.
 import asyncio
 import logging
 import time
-from typing import List, Optional, Set, Dict, TYPE_CHECKING
+from typing import List, Optional, Sequence, Set, Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..settings import CollectorSettings
@@ -131,7 +131,7 @@ class GitHubDataCollector:
                 stargazers_count=repo.stargazers_count,
                 watchers_count=repo.watchers_count,
                 forks_count=repo.forks_count,
-                html_url=repo.html_url or "",
+                url=repo.html_url or "",
                 clone_url=repo.clone_url or "",
             )
 
@@ -154,20 +154,25 @@ class GitHubDataCollector:
             raise
 
     async def get_issues(
-        self, repo_name: str
+        self, repo_name: str, with_comment: bool = True
     ) -> List[Issue]:
         """
         Get repository issues (excluding pull requests)
 
         Args:
             repo_name: Repository name in format 'owner/repo'
+            with_comment: Whether to include comments in the response
         """
-        logger.info(f"Starting issue collection for repository: {repo_name}")
+        logger.info(f"Starting issue collection for repository: {repo_name} (with_comment={with_comment})")
 
         def _fetch_issues():
             issues = []
-            max_issues = self.settings.get_max_issues()
-            since_time = self.settings.get_issues_since_time()
+            if with_comment:
+                max_issues = self.settings.get_max_issues()
+                since_time = self.settings.get_issues_since_time()
+            else:
+                max_issues = self.settings.get_max_issues_without_comment()
+                since_time = self.settings.get_issues_without_comment_since_time()
             since_timestamp = None
             if since_time:
                 since_timestamp = datetime.now(tz=timezone.utc) - since_time
@@ -203,7 +208,7 @@ class GitHubDataCollector:
                     effective_limit = None
 
                 # Create progress bar with progress manager
-                issue_desc = f"Issues from {repo_name}"
+                issue_desc = f"Issues ({'with' if with_comment else 'without'} comment) from {repo_name}"
                 
                 # Use progress manager for sub-progress tracking
                 with progress_manager.create_sub_progress(
@@ -236,7 +241,7 @@ class GitHubDataCollector:
                         # Skip pull requests (they appear in issues endpoint)
                         if issue.pull_request is None:
                             try:
-                                converted_issue = self.converter.to_issue(issue)
+                                converted_issue = self.converter.to_issue(issue, with_comment=with_comment)
                                 issues.append(converted_issue)
                                 count += 1
                                 logger.debug(
@@ -279,20 +284,61 @@ class GitHubDataCollector:
         return await self._run_in_executor(_fetch_issues)
 
     async def get_pull_requests(
-        self, repo_name: str
+        self, repo_name: str, with_comment: bool = True
     ) -> List[PullRequest]:
         """
         Get repository pull requests
 
         Args:
             repo_name: Repository name in format 'owner/repo'
+            with_comment: Whether to include comments in the response
         """
-        logger.info(f"Starting pull request collection for repository: {repo_name}")
+        return await self._get_pull_requests_by_status(repo_name, "all", with_comment)
 
-        def _fetch_pull_requests():
+    async def get_merged_pull_requests(self, repo_name: str) -> List[PullRequest]:
+        """Get merged pull requests only"""
+        return await self._get_pull_requests_by_status(repo_name, "merged")
+
+    async def get_closed_pull_requests(self, repo_name: str) -> List[PullRequest]:
+        """Get closed (but not merged) pull requests only"""
+        return await self._get_pull_requests_by_status(repo_name, "closed")
+
+    async def get_open_pull_requests(self, repo_name: str) -> List[PullRequest]:
+        """Get open pull requests only"""  
+        return await self._get_pull_requests_by_status(repo_name, "open")
+
+    async def _get_pull_requests_by_status(self, repo_name: str, status: str, with_comment: bool = True) -> List[PullRequest]:
+        """
+        Helper method to get pull requests by specific status
+        
+        Args:
+            repo_name: Repository name in format 'owner/repo'
+            status: PR status - 'merged', 'closed', or 'open'
+            with_comment: Whether to include comments in the response
+        """
+        logger.info(f"Starting {status} pull request collection for repository: {repo_name} (with_comment={with_comment})")
+
+        def _fetch_pull_requests_by_status():
             pull_requests = []
-            max_prs = self.settings.get_max_pull_requests()
-            since_time = self.settings.get_pull_requests_since_time()
+            
+            # Get appropriate settings based on status and comment inclusion
+            if with_comment:
+                if status == "merged":
+                    max_prs = self.settings.get_max_merged_pull_requests()
+                    since_time = self.settings.get_merged_pull_requests_since_time()
+                elif status == "closed":
+                    max_prs = self.settings.get_max_closed_pull_requests()
+                    since_time = self.settings.get_closed_pull_requests_since_time()
+                elif status == "open":
+                    max_prs = self.settings.get_max_open_pull_requests()
+                    since_time = self.settings.get_open_pull_requests_since_time()
+                else:  # all
+                    max_prs = self.settings.get_max_pull_requests()
+                    since_time = self.settings.get_pull_requests_since_time()
+            else:
+                max_prs = self.settings.get_max_pull_requests_without_comment()
+                since_time = self.settings.get_pull_requests_without_comment_since_time()
+            
             since_timestamp = None
             if since_time:
                 since_timestamp = datetime.now(tz=timezone.utc) - since_time
@@ -300,99 +346,86 @@ class GitHubDataCollector:
             start_time = time.time()
             count = 0
             page_count = 0
-            rate_limit_hits = 0
 
-            logger.info(
-                f"PR collection parameters: max_prs={max_prs}, since_time={since_time}"
-            )
+            logger.info(f"{status.capitalize()} PR collection parameters: max_prs={max_prs}, since_time={since_time}")
 
             try:
-                logger.debug(f"Fetching pull requests for {repo_name} (state=all)")
                 repo = self._get_repository(repo_name)
-                pulls_paginated = repo.get_pulls(state="all")
+                # Get PRs with appropriate state filter
+                if status == "open":
+                    pulls_paginated = repo.get_pulls(state="open")
+                else:
+                    pulls_paginated = repo.get_pulls(state="closed")
 
-                # Get total count if available
                 try:
                     total_prs = pulls_paginated.totalCount
-                    logger.info(
-                        f"Total pull requests available in repository: {total_prs}"
-                    )
+                    logger.info(f"Total {status} PRs available in repository: {total_prs}")
                 except Exception:
                     total_prs = None
-                    logger.debug("Could not determine total PR count")
 
                 # Determine effective limit for progress bar
-                effective_limit = min(
-                    max_prs or float("inf"), total_prs or float("inf")
-                )
+                effective_limit = min(max_prs or float("inf"), total_prs or float("inf"))
                 if effective_limit == float("inf"):
                     effective_limit = None
 
-                # Create progress bar with progress manager
-                pr_desc = f"PRs from {repo_name}"
+                # Create progress bar
+                pr_desc = f"{status.capitalize()} PRs ({'with' if with_comment else 'without'} comment) from {repo_name}"
                 
                 with progress_manager.create_sub_progress(
                     total=effective_limit,
                     desc=pr_desc,
                     unit="PRs",
-                    parent_id="prs"
+                    parent_id=f"{status}_prs"
                 ) as prs_progress:
 
-                    # Convert pull requests to model objects
                     for pr in pulls_paginated:
                         page_count += 1
                         prs_progress.update(1)
 
                         # Check max limit
                         if max_prs is not None and count >= max_prs:
-                            logger.info(f"Reached maximum PR limit: {max_prs}")
+                            logger.info(f"Reached maximum {status} PR limit: {max_prs}")
                             break
 
                         # Check time limit
                         if since_timestamp is not None and pr.created_at < since_timestamp:
-                            logger.info(
-                                f"Reached time limit: PR created at {pr.created_at} is older than {since_timestamp}"
-                            )
+                            logger.info(f"Reached time limit for {status} PRs")
                             break
 
+                        # Filter by status (for closed state, we need to distinguish merged vs closed)
+                        if status == "merged" and not pr.merged:
+                            continue
+                        elif status == "closed" and pr.merged:
+                            continue
+
                         try:
-                            converted_pr = self.converter.to_pull_request(pr)
+                            converted_pr = self.converter.to_pull_request(pr, with_comment=with_comment)
                             pull_requests.append(converted_pr)
                             count += 1
-                            logger.debug(
-                                f"Collected PR #{pr.number}: {pr.title[:50]}... "
-                                f"(state: {pr.state}, merged: {pr.merged})"
-                            )
+                            logger.debug(f"Collected {status} PR #{pr.number}: {pr.title[:50]}...")
                         except Exception as e:
-                            logger.warning(f"Failed to convert PR #{pr.number}: {e}")
-
+                            logger.warning(f"Failed to convert {status} PR #{pr.number}: {e}")
 
                 elapsed = time.time() - start_time
-                logger.info(
-                    f"Successfully retrieved {len(pull_requests)} pull requests for {repo_name} in {elapsed:.2f}s"
-                )
-                logger.info(
-                    f"Collection stats: processed {page_count} total PRs, "
-                    f"collected {count} PRs, rate limit hits: {rate_limit_hits}"
-                )
+                logger.info(f"Successfully retrieved {len(pull_requests)} {status} pull requests for {repo_name} in {elapsed:.2f}s")
 
                 return pull_requests
 
-            except GithubException as e:
-                elapsed = time.time() - start_time
-                logger.error(
-                    f"GitHub API error fetching pull requests for {repo_name} after {elapsed:.2f}s: {e}"
-                )
-                return pull_requests  # Return what we have so far
-
             except Exception as e:
                 elapsed = time.time() - start_time
-                logger.error(
-                    f"Unexpected error fetching pull requests for {repo_name} after {elapsed:.2f}s: {e}"
-                )
+                logger.error(f"Error fetching {status} pull requests for {repo_name} after {elapsed:.2f}s: {e}")
                 return []
 
-        return await self._run_in_executor(_fetch_pull_requests)
+        return await self._run_in_executor(_fetch_pull_requests_by_status)
+
+
+    async def get_issues_without_comment(self, repo_name: str) -> List[Issue]:
+        """Get repository issues without comments"""
+        return await self.get_issues(repo_name, with_comment=False)
+
+    async def get_pull_requests_without_comment(self, repo_name: str) -> List[PullRequest]:
+        """Get repository pull requests without comments"""
+        return await self._get_pull_requests_by_status(repo_name, "all", with_comment=False)
 
     async def get_events(
         self, repo_name: str
