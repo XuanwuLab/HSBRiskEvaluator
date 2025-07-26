@@ -1,4 +1,5 @@
 from multiprocessing.managers import ValueProxy
+import argparse
 import os
 import time
 import yaml
@@ -331,16 +332,61 @@ def sort_packages_by_git_url(package_dict_by_name: Dict) -> Dict:
     sorted_packages = front_packages + packages_without_url + end_packages
     
     # Convert back to dictionary maintaining the sorted order
-    return {package_name: package_info for package_name, package_info in sorted_packages}
+    return {package_name: package_info for package_name, package_info in sorted_packages} 
 
 
-# Main entry point
-if __name__ == "__main__":
-    package_file = get_data_dir() / "packages.yaml"
-    dependency_file = get_data_dir() / "dependencies.yaml"
-
-    for file in [package_file, dependency_file]:
+def main():
+    """Main entry point for the repository information fetcher."""
+    parser = argparse.ArgumentParser(
+        description="Fetch repository information for Debian packages from GitHub",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                    # Process default files (data/packages.yaml, data/dependencies.yaml)
+  %(prog)s -d /data/debian    # Process files in specific directory
+  %(prog)s -c 5              # Use 5 concurrent processes
+"""
+    )
+    
+    parser.add_argument(
+        "--directory", "-d",
+        type=Path,
+        help="Directory containing packages.yaml and dependencies.yaml files",
+        metavar="DIR"
+    )
+    
+    parser.add_argument(
+        "--concurrency", "-c",
+        type=int,
+        default=10,
+        help="Maximum number of concurrent processes (default: 10)",
+        metavar="N"
+    )
+    
+    args = parser.parse_args()
+    
+    # Determine input directory
+    if args.directory:
+        input_dir = args.directory
+        logger.info(f"Using specified directory: {input_dir}")
+    else:
+        input_dir = get_data_dir()
+        logger.info(f"Using default data directory: {input_dir}")
+    
+    # Define files to process
+    package_file = input_dir / "packages.yaml"
+    dependency_file = input_dir / "dependencies.yaml"
+    files_to_process = [package_file, dependency_file]
+    
+    # Validate files exist
+    for file in files_to_process:
         if not file.exists():
             logger.error(f"File {file} does not exist.")
-        else:
-            collect_repo_info(file, max_concurrency=10)
+            continue
+        
+        logger.info(f"Processing file: {file}")
+        collect_repo_info(file, max_concurrency=args.concurrency)
+
+
+if __name__ == "__main__":
+    main()

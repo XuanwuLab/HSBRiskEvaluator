@@ -80,6 +80,59 @@ CI_eval = CIEvaluator(repo_info)
 CI_result = asyncio.run(CI_eval.evaluate())
 ```
 
+## Scripts for Batch Repository Information Collection
+
+The `scripts/` directory contains utilities for collecting repository information in batch processing workflows. These scripts work together in a specific order to gather comprehensive data about Debian packages and their upstream repositories:
+
+### 1. Package List Generation
+
+**`scripts/get_priority_packages.py`**  
+Extracts Debian packages with "required", "important", and "standard" priorities into a text file for further processing.
+
+**`scripts/get_cloud_packages.py`**  
+Generates lists of cloud-related packages from various sources for specialized analysis workflows.
+
+### 2. Package Information Collection
+
+**`scripts/generate_packages_from_file.py`**  
+Reads a package list file and generates detailed package and dependency information using APT utilities. Creates `packages.yaml` and `dependencies.yaml` files with comprehensive package metadata.
+
+### 3. Upstream Repository Discovery
+
+**`scripts/fetch_upstream_infos.py`**  
+Uses LLM-based analysis to discover and validate upstream Git repository URLs for packages. Updates package files with upstream repository information, which is essential for the next steps.
+
+### 4. Metadata Generation
+
+**`scripts/generate_package_metadata.py`**  
+Processes packages and dependencies to generate metadata about package relationships and sibling packages sharing the same upstream repository. Creates `meta_data.yaml` files for efficient package grouping.
+
+### 5. Repository Data Collection
+
+**`scripts/fetch_repo_infos.py`**  
+Fetches comprehensive repository information from GitHub for packages with upstream URLs. Collects commit history, contributor data, security information, and other repository metrics for risk analysis.
+
+### Typical Workflow
+
+```bash
+# 1. Generate package list
+python scripts/get_priority_packages.py
+
+# 2. Generate package information 
+python scripts/generate_packages_from_file.py debian_priority_packages.txt -d debian
+
+# 3. Fetch upstream repository URLs
+python scripts/fetch_upstream_infos.py -d data/debian
+
+# 4. Generate package metadata
+python scripts/generate_package_metadata.py -d data/debian
+
+# 5. Collect repository information
+python scripts/fetch_repo_infos.py -d data/debian
+```
+
+All scripts support the `--directory` parameter to specify custom input/output directories and include comprehensive help documentation accessible via `--help`.
+
 ## Evaluation Analysis
 
 Each repository evaluation produces detailed analysis across these core aspects:
