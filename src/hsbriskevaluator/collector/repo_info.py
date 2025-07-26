@@ -99,7 +99,7 @@ class PullRequest(Issue):
     approvers: list[User] = Field(description="approver of the pull request")
     reviewers: list[User] = Field(description="list of reviewers for the pull request")
     reviews: list[PullRequestReview] = Field(
-        description="list of reviews for the pull request, including comments"
+        description="list of reviews for the pull request, including comments", default_factory=list
     )
     assignees: list[User] = Field(description="list of assignees for the pull request", default_factory=list)
     merger: User = Field(description="merger of the pull request")
