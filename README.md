@@ -19,6 +19,8 @@ The easiest way to run the HSB Risk Evaluator is using Docker, which provides a 
 ```bash
 # Build and run the development environment
 ./dev.sh
+uv sync
+uv venv
 source .venv/bin/activate
 ```
 
