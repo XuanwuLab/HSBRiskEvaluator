@@ -15,8 +15,9 @@ class EvaluatorSettings(BaseSettings):
     dependency_max_concurrency: int = 5
     
     # Community Evaluation Settings
-    prs_to_analyze_limit: int = 10
+    prs_to_analyze_limit: int = 300
     pr_consistency_confidence_threshold: float = 0.7
+    pr_batch_size: int = 30
     
     # Community Activity Scoring
     max_issue_participants_for_normalization: float = 5.0

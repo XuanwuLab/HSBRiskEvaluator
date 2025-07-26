@@ -57,6 +57,8 @@ class PayloadHiddenDetail(BaseModel):
     file_type: str
     is_test_file: bool
     is_documentation: bool
+    is_code: bool
+    is_asset: bool
 
 
 class PayloadHiddenEvalResult(BaseModel):
@@ -67,6 +69,13 @@ class PayloadHiddenEvalResult(BaseModel):
     )
     allows_binary_document_files: bool = Field(
         description="Whether repository allows submitting binary files as documents"
+    )
+
+    allows_binary_code_files: bool = Field(
+        description="Whether repository allows submitting binary files as the part of codebases"
+    )
+    allows_binary_assets_files: bool = Field(
+        description="Whether repository allows submitting binary files as assets"
     )
     binary_files_count: int = Field(
         description="Total number of binary files in repository"
@@ -106,7 +115,11 @@ class DangerousTriggerAnalysis(BaseModel):
     is_dangerous: bool = Field(
         description="Whether the trigger is considered dangerous"
     )
-    danger_level: float = Field(description="Score for dangerous trigger in workflow")
+    danger_level: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="A score from 0.0 (safe) to 1.0 (very dangerous)."
+    )
     reason: str = Field(description="Reason for considering the trigger dangerous")
 
 

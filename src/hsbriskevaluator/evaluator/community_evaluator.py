@@ -1,7 +1,7 @@
 import logging
 import asyncio
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Set
+from typing import Dict, Set, List, Optional
 from statistics import mean, geometric_mean
 from hsbriskevaluator.evaluator.base import BaseEvaluator, CommunityEvalResult
 from hsbriskevaluator.collector.repo_info import (
@@ -36,9 +36,11 @@ class CommunityEvaluator(BaseEvaluator):
     def __init__(
         self,
         repo_info: RepoInfo,
-        settings: EvaluatorSettings,
+        settings: Optional[EvaluatorSettings]=None,
     ):
         super().__init__(repo_info)
+        if settings is None:
+            settings = EvaluatorSettings()
         self.settings = settings
         self.llm_model_name = settings.pr_consistency_analysis_model_id
         self.max_concurrency = settings.community_max_concurrency
@@ -288,7 +290,7 @@ class CommunityEvaluator(BaseEvaluator):
         logger.debug(
             f"Average time to become reviewer: {mean(activities) if len(activities) else 0.0} PRs"
         )
-        return mean(activities) if len(activities) else 0.0
+        return mean(activities) if len(activities) else -1.0
 
     def _analyze_required_reviewers(self) -> dict[int, float]:
         """Estimate minimum required reviewers for PR approval"""
@@ -340,64 +342,65 @@ class CommunityEvaluator(BaseEvaluator):
         )[
             :self.settings.prs_to_analyze_limit
         ]  # Analyze first N PRs
-
+        
         if not prs_to_analyze:
             return 0
 
         # Analyze PRs concurrently
         tasks = []
-        for pr in prs_to_analyze:
-            if pr.status == "merged" and pr.title:
-                task = self._analyze_pr_consistency(pr)
-                tasks.append(task)
+        batch_size = self.settings.pr_batch_size
+        page_num = (len(prs_to_analyze)-1)//batch_size+1
+        for page in range(page_num):
+            task = self._analyze_pr_consistency(prs_to_analyze[batch_size*page:batch_size*(page+1)])
+            tasks.append(task)
+
 
         if not tasks:
             return 0
 
         # Execute all tasks concurrently with rate limiting
+
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Count inconsistent PRs
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.warning(
-                    f"Failed to analyze PR {prs_to_analyze[i].number} consistency: {str(result)}"
+                    f"Failed to analyze PR {list(map(lambda pr: pr.number,prs_to_analyze[i*batch_size:(i+1)*batch_size]))} consistency: {str(result)}"
                 )
-            elif result:
-                inconsistent_count += 1
+            else:
+                inconsistent_count += 0
+                for analysis in result:
+                    if analysis.is_inconsistent and analysis.confidence > self.settings.pr_consistency_confidence_threshold:
+                        inconsistent_count+=1
+                
 
         logger.debug(f"PRs with inconsistent descriptions: {inconsistent_count}")
         return inconsistent_count
 
-    async def _analyze_pr_consistency(self, pr: PullRequest) -> bool:
+    async def _analyze_pr_consistency(self, prs: List[PullRequest]) -> List[PRInconsistencyAnalysis]:
         """Use LLM to analyze if PR description matches its likely implementation"""
-        async with self._semaphore:  # Rate limiting
-            messages = [
-                {
-                    "role": "user",
-                    "content": PR_CONSISTENCY_ANALYSIS_PROMPT.format(
-                        title=pr.title,
-                        author=pr.author,
-                        status=pr.status,
-                        created_at=pr.created_at,
-                        merged_at=pr.merged_at or "Not merged",
-                        changed_files=pr.changed_files,
-                        body=pr.body,
-                    ),
-                }
-            ]
 
+        logger.info(f"Start analysis for PR {list(map(lambda pr: pr.number, prs))}")
+        async with self._semaphore:  # Rate limiting
+            def simplify_pr(pr:PullRequest)->Dict:
+                return {'title': pr.title, 'author':pr.author, 'status': pr.status, 'created_at':pr.created_at, 'merged_at':pr.merged_at or 'Not merged', 'changed_files':pr.changed_files,'body':pr.body}
+
+            simplified_prs = list(map(simplify_pr, prs))
+            messages = [
+                {"role": "system", "content": PR_CONSISTENCY_ANALYSIS_PROMPT},
+                {"role": "user", "content": f"Pull requests: {simplified_prs}"},
+            ]
             try:
                 analysis = await call_llm_with_client(
                     client=self.client,
                     model_id=self.llm_model_name,
                     messages=messages,
-                    response_model=PRInconsistencyAnalysis,
+                    response_model=List[PRInconsistencyAnalysis],
                 )
-                return analysis.is_inconsistent and analysis.confidence > self.settings.pr_consistency_confidence_threshold
-
+                return analysis
             except Exception as e:
-                logger.warning(f"LLM analysis failed for PR {pr.number}: {str(e)}")
+                logger.warning(f"LLM analysis failed for PR {list(map(lambda pr: pr.number, prs))}: {str(e)}")
                 return False
 
     def _calculate_avg_participants_per_issue(self) -> float:
