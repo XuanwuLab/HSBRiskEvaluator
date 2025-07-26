@@ -1,3 +1,4 @@
+from multiprocessing.managers import ValueProxy
 import os
 import time
 import yaml
@@ -5,7 +6,7 @@ from pathlib import Path
 from typing import Dict
 import logging
 import asyncio
-from multiprocessing import Pool, Manager, current_process
+from multiprocessing import Pool, Manager, current_process, Lock
 from tqdm import tqdm
 
 from hsbriskevaluator.collector.github_collector import CollectorSettings
@@ -13,6 +14,7 @@ from hsbriskevaluator.utils.file import get_data_dir
 from hsbriskevaluator.collector import collect_all
 from hsbriskevaluator.utils.progress_manager import get_progress_manager
 
+yaml.Dumper.ignore_aliases = lambda *args: True  # Disable all aliases
 def setup_process_logging():
     """Setup logging for each child process"""
     # Use progress manager for consistent logging
@@ -41,7 +43,7 @@ def save_yaml(data: Dict, file_path: Path):
     """Save a Python dictionary to a YAML file."""
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-        with open(file_path, "w") as f:
+        with open(file_path, "w", 0o666) as f:
             yaml.dump(data, f, allow_unicode=True)
         logger.info(f"Successfully saved data to {file_path}")
     except Exception as e:
@@ -65,8 +67,37 @@ def get_repo_name(git_url: str) -> str:
         logger.error(f"Failed to extract repository name from URL '{git_url}': {e}")
         raise
 
+def detect_child(pkt_name: str, git_url: str, meta_data_lock):
+    with meta_data_lock:
+        meta_data_path = get_data_dir() / "meta_data.yaml"
+        meta_data_by_url_path = get_data_dir() / "meta_data_by_url.yaml"
+        meta_data = load_yaml(meta_data_path) 
+        meta_data_by_url = load_yaml(meta_data_by_url_path)
+        child = meta_data_by_url.get(git_url)
+        if not child:
+            meta_data_by_url[git_url] = []
 
-def collect_one(package_info: Dict, github_tokens: list, progress_counter):
+        if pkt_name not in meta_data_by_url[git_url]:
+            meta_data_by_url[git_url].append(pkt_name) 
+
+        meta_data[pkt_name] = {
+            "url": git_url,
+            "sibling": meta_data_by_url[git_url]
+        }
+        for pkt in meta_data_by_url[git_url]:
+            if pkt_name not in meta_data[pkt]["sibling"]: 
+                meta_data[pkt]["sibling"].append(pkt_name)
+        save_yaml(meta_data, meta_data_path)
+        save_yaml(meta_data_by_url, meta_data_by_url_path)
+
+        if not child:
+            return None
+        result = get_data_dir() / "repo_info" / f"{child[0]}.yaml" 
+        if result.exists():
+            return result
+        return None
+    
+def collect_one(package_info: Dict, github_tokens: list, progress_counter: ValueProxy, meta_data_lock):
     """
     Collect repository information for a single package file and update it if needed.
 
@@ -74,6 +105,7 @@ def collect_one(package_info: Dict, github_tokens: list, progress_counter):
         package_info (Dict): Information about the package.
         github_tokens (list): List of GitHub tokens for API access.
         progress_counter: Shared counter for tracking progress
+        meta_data_lock: Multiprocessing lock for protecting metadata file operations
     """
     # Setup process-specific logging and progress manager
     progress_manager = get_progress_manager()
@@ -82,30 +114,65 @@ def collect_one(package_info: Dict, github_tokens: list, progress_counter):
     package_name = None
     try:
         # Validate package information
-        package_name = package_info.get("parent_package") or package_info.get("package")
+        package_name = package_info.get("package")
+        parent_package_name = package_info.get("parent_debian_package") 
         if not package_name:
-            raise ValueError("Missing 'package' or 'parent_package' in package info.")
+            process_logger.error("Missing 'package' or 'parent_package' in package info.")
+            progress_counter.value += 1
+            return {"status": "skipped", "package": package_name}
         
         settings = CollectorSettings(github_tokens=github_tokens)
         process_logger.info(f"Processing package {package_name}")
         
         git_url = package_info.get("upstream_git_url")
         if not git_url:
-            raise ValueError(f"Missing 'upstream_git_url' for package: {package_name}")
+            process_logger.error(f"Missing 'upstream_git_url' for package: {package_name}")
+            progress_counter.value += 1
+            return {"status": "skipped", "package": package_name}
 
         # Skip non-GitHub URLs
         if not git_url.startswith("https://github"):
             process_logger.info(f"Skipping {package_name} - non-GitHub URL")
-            with progress_counter.get_lock():
-                progress_counter.value += 1
+            progress_counter.value += 1
             return {"status": "skipped", "package": package_name}
 
-        # Define output path for repository info
         repo_info_path = get_data_dir() / "repo_info" / f"{package_name}.yaml"
+
+        if parent_package_name: 
+            parent_repo_info_path = get_data_dir() / "repo_info" / f"{parent_package_name}.yaml" 
+            if parent_repo_info_path.exists() and not repo_info_path.exists():
+                rel_path = os.path.relpath(
+                    str(parent_repo_info_path.resolve()), 
+                    str(repo_info_path.parent.resolve())   
+                )
+                repo_info_path.symlink_to(rel_path)
+                progress_counter.value += 1
+                return {"status": "skipped", "package": package_name}
+
+            elif repo_info_path.exists() and not parent_repo_info_path.exists():
+                rel_path = os.path.relpath(
+                    str(repo_info_path.resolve()),
+                    str(parent_repo_info_path.parent.resolve())
+                )
+                parent_repo_info_path.symlink_to(rel_path)
+                progress_counter.value += 1
+                return {"status": "skipped", "package": package_name}
+
         if repo_info_path.exists():
             process_logger.info(f"Skipping {package_name} - already exists")
-            with progress_counter.get_lock():
-                progress_counter.value += 1
+            progress_counter.value += 1
+            return {"status": "skipped", "package": package_name}
+
+        process_logger.info("OK, we will try to find existing package through slow path")
+        sibling_repo_info_path = detect_child(package_name, git_url, meta_data_lock)
+        if sibling_repo_info_path:
+            process_logger.info(f"found sibling {sibling_repo_info_path}")
+            rel_path = os.path.relpath(
+                    str(repo_info_path.resolve()), 
+                    str(sibling_repo_info_path.parent.resolve())   
+                )
+            sibling_repo_info_path.symlink_to(rel_path)
+            progress_counter.value += 1
             return {"status": "skipped", "package": package_name}
 
         if not repo_info_path.parent.exists():
@@ -124,8 +191,7 @@ def collect_one(package_info: Dict, github_tokens: list, progress_counter):
         save_yaml(repo_info.model_dump(), repo_info_path)
         process_logger.info(f"Successfully processed {package_name}")
         
-        with progress_counter.get_lock():
-            progress_counter.value += 1
+        progress_counter.value += 1
         
         return {"status": "completed", "package": package_name}
 
@@ -133,8 +199,7 @@ def collect_one(package_info: Dict, github_tokens: list, progress_counter):
         error_msg = f"Error processing {package_name or 'unknown'}: {e}"
         process_logger.error(error_msg)
         
-        with progress_counter.get_lock():
-            progress_counter.value += 1
+        progress_counter.value += 1
             
         return {"status": "error", "package": package_name, "error": str(e)}
 
@@ -148,6 +213,10 @@ def collect_repo_info(package_file: Path, max_concurrency: int = 5):
         max_concurrency (int): Maximum number of concurrent processes allowed.
     """
     package_dict_by_name = load_yaml(package_file)
+    
+    # Sort packages so that for same upstream_git_url, one goes first, others go last
+    package_dict_by_name = sort_packages_by_git_url(package_dict_by_name)
+    logger.info(f"Sorted packages by upstream_git_url - processing {len(package_dict_by_name)} packages")
     total_packages = len(package_dict_by_name)
     
     progress_manager.print_status(f"Starting to process {total_packages} packages from {package_file}")
@@ -165,10 +234,11 @@ def collect_repo_info(package_file: Path, max_concurrency: int = 5):
     # Use multiprocessing with a simple shared counter for progress
     with Manager() as manager:
         progress_counter = manager.Value('i', 0)
+        meta_data_lock = manager.Lock()
         
         # Prepare arguments for multiprocessing
         package_list = [
-            (package_info, github_tokens, progress_counter)
+            (package_info, github_tokens, progress_counter, meta_data_lock)
             for package_name, package_info in package_dict_by_name.items()
         ]
 
@@ -182,13 +252,15 @@ def collect_repo_info(package_file: Path, max_concurrency: int = 5):
                 while not async_result.ready():
                     current_progress = progress_counter.value
                     main_pbar.n = current_progress
-                    main_pbar.refresh()
+                    if type(main_pbar) is tqdm:
+                        main_pbar.refresh()
                     time.sleep(0.5)
                 
                 # Get final results
                 results = async_result.get()
                 main_pbar.n = total_packages
-                main_pbar.refresh()
+                if type(main_pbar) is tqdm:
+                    main_pbar.refresh()
         
         # Process results and count statistics
         stats = {"completed": 0, "skipped": 0, "error": 0}
@@ -218,6 +290,50 @@ def collect_repo_info(package_file: Path, max_concurrency: int = 5):
         progress_manager.print_status(f"📋 Detailed logs: {progress_manager.get_log_file_path()}")
 
 
+def sort_packages_by_git_url(package_dict_by_name: Dict) -> Dict:
+    """
+    Sort packages so that for packages with the same upstream_git_url,
+    one goes to the front and others go to the end.
+    
+    Args:
+        package_dict_by_name: Dictionary of package_name -> package_info
+        
+    Returns:
+        Dict: Reordered dictionary with same-URL packages sorted appropriately
+    """
+    from collections import defaultdict
+    
+    # Group packages by their upstream_git_url
+    url_groups = defaultdict(list)
+    packages_without_url = []
+    
+    for package_name, package_info in package_dict_by_name.items():
+        git_url = package_info.get("upstream_git_url")
+        if git_url:
+            url_groups[git_url].append((package_name, package_info))
+        else:
+            packages_without_url.append((package_name, package_info))
+    
+    # Build the sorted result
+    front_packages = []  # First occurrence of each URL group
+    end_packages = []    # Additional packages with same URLs
+    
+    for git_url, packages in url_groups.items():
+        if len(packages) == 1:
+            # Single package with this URL - goes to front
+            front_packages.extend(packages)
+        else:
+            # Multiple packages with same URL - first goes to front, others to end
+            front_packages.append(packages[0])
+            end_packages.extend(packages[1:])
+    
+    # Combine: front packages + packages without URL + end packages
+    sorted_packages = front_packages + packages_without_url + end_packages
+    
+    # Convert back to dictionary maintaining the sorted order
+    return {package_name: package_info for package_name, package_info in sorted_packages}
+
+
 # Main entry point
 if __name__ == "__main__":
     package_file = get_data_dir() / "packages.yaml"
@@ -227,4 +343,4 @@ if __name__ == "__main__":
         if not file.exists():
             logger.error(f"File {file} does not exist.")
         else:
-            collect_repo_info(file, max_concurrency=5)
+            collect_repo_info(file, max_concurrency=10)
