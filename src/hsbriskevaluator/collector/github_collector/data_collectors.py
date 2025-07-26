@@ -221,7 +221,6 @@ class GitHubDataCollector:
                     # Iterate through all issues across all pages
                     for issue in issues_paginated:
                         page_count += 1
-                        issues_progress.update(1)
 
                         # Check max limit
                         if max_issues is not None and count >= max_issues:
@@ -243,6 +242,7 @@ class GitHubDataCollector:
                             try:
                                 converted_issue = self.converter.to_issue(issue, with_comment=with_comment)
                                 issues.append(converted_issue)
+                                issues_progress.update(1)
                                 count += 1
                                 logger.debug(
                                     f"Collected issue #{issue.number}: {issue.title[:50]}..."
@@ -380,7 +380,6 @@ class GitHubDataCollector:
 
                     for pr in pulls_paginated:
                         page_count += 1
-                        prs_progress.update(1)
 
                         # Check max limit
                         if max_prs is not None and count >= max_prs:
@@ -401,6 +400,7 @@ class GitHubDataCollector:
                         try:
                             converted_pr = self.converter.to_pull_request(pr, with_comment=with_comment)
                             pull_requests.append(converted_pr)
+                            prs_progress.update(1)
                             count += 1
                             logger.debug(f"Collected {status} PR #{pr.number}: {pr.title[:50]}...")
                         except Exception as e:
@@ -666,8 +666,8 @@ class GitHubDataCollector:
                         )
 
                         # Read workflow file from local repository
-                        file_path = local_repo_path / workflow.path
                         try:
+                            file_path = local_repo_path / workflow.path
                             with open(file_path, "r", encoding="utf-8") as f:
                                 content = f.read()
                             logger.debug(

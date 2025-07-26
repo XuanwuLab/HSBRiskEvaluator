@@ -67,6 +67,16 @@ class Comment(BaseModel):
     content: str = Field(description="content of the comment")
     timestamp: str = Field(description="timestamp when the comment was made")
 
+class  PullRequestReview(BaseModel):
+    user: User = Field(description="the user who made the review")
+    body: str = Field(description="content of the review")
+    commit_id: str = Field(description="commit ID associated with the review")
+    html_url: str = Field(description="HTML URL of the review")
+    id: int = Field(description="unique ID of the review")
+    pull_request_url: str = Field(description="URL of the pull request associated with the review")
+    state: str = Field(description="state of the review, such as APPROVED, CHANGES_REQUESTED, or COMMENTED")
+    submitted_at: str = Field(description="timestamp when the review was submitted")
+
 
 class Issue(BaseModel):
     number: int = Field(description="issue number")
@@ -78,6 +88,9 @@ class Issue(BaseModel):
         description="status of the issue, can be open or closed"
     )
     url: str = Field(description="URL of the issue")
+    assignees: list[User] = Field(
+        description="list of users assigned to the issue", default_factory=list
+    )
     created_at: str = Field(description="creation timestamp")
     updated_at: str = Field(description="last update timestamp")
 
@@ -85,6 +98,10 @@ class Issue(BaseModel):
 class PullRequest(Issue):
     approvers: list[User] = Field(description="approver of the pull request")
     reviewers: list[User] = Field(description="list of reviewers for the pull request")
+    reviews: list[PullRequestReview] = Field(
+        description="list of reviews for the pull request, including comments"
+    )
+    assignees: list[User] = Field(description="list of assignees for the pull request", default_factory=list)
     merger: User = Field(description="merger of the pull request")
     status: Literal["open", "closed", "merged"] = Field(
         description="status of the pull request"

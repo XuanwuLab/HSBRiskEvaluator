@@ -100,6 +100,7 @@ class GitHubRepoCollector:
                     binary_files,
                     workflows,
                     check_runs,
+                    commits
                 ) = await asyncio.gather(
                     data_collector.get_issues(repo_name),
                     data_collector.get_issues_without_comment(repo_name),
@@ -110,6 +111,7 @@ class GitHubRepoCollector:
                     data_collector.find_binary_files_local(local_repo_path),
                     data_collector.get_workflows(repo_name, local_repo_path),
                     data_collector.get_check_runs(repo_name),
+                    data_collector.get_commits(repo_name),
                 )
 
                 # Combine all pull requests as requested
@@ -118,7 +120,6 @@ class GitHubRepoCollector:
                 # Finalize repo info  
                 logger.info(f"Finalizing repository info for {repo_name}")
                 events = []  # events not used in current implementation
-                commits = []  # commits not used to avoid large repo_info
 
                 # Create RepoInfo model
                 repo_info = RepoInfo(

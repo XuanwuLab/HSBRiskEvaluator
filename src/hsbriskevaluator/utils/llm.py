@@ -8,7 +8,6 @@ from langchain_openai import ChatOpenAI
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain_core.language_models import BaseChatModel
-from pathlib import Path
 from openai import OpenAI, AsyncOpenAI
 import os
 import instructor

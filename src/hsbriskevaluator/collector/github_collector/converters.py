@@ -9,6 +9,7 @@ from datetime import datetime
 from github.NamedUser import NamedUser
 from github.Issue import Issue as GithubIssue
 from github.PullRequest import PullRequest as GithubPR
+from github.PullRequestReview import PullRequestReview as GithubPullRequestReview
 from github.PullRequestComment import PullRequestComment
 from github.IssueComment import IssueComment
 from github.Commit import Commit as GithubCommit
@@ -19,6 +20,7 @@ from ..repo_info import (
     User,
     Issue,
     PullRequest,
+    PullRequestReview,
     Comment,
     GithubEvent,
     Commit,
@@ -42,6 +44,20 @@ class GitHubConverter:
             user=GitHubConverter.to_user(comment.user),
             content=comment.body or "",
             timestamp=comment.created_at.isoformat() if comment.created_at else "",
+        )
+
+    @staticmethod
+    def to_pr_review(review: GithubPullRequestReview) -> PullRequestReview:
+        """Convert PyGithub PullRequestReview to PullRequestReview model"""
+        return PullRequestReview(
+            user=GitHubConverter.to_user(review.user),
+            body=review.body or "",
+            commit_id=review.commit_id or "",
+            html_url=review.html_url or "",
+            id=review.id,
+            pull_request_url=review.pull_request_url or "",
+            state=review.state or "",
+            submitted_at=review.submitted_at.isoformat() if review.submitted_at else "",
         )
 
     @staticmethod
@@ -99,6 +115,9 @@ class GitHubConverter:
 
         # Ensure status is valid for Issue model
         status = "open" if issue.state == "open" else "closed"
+        assignees = []
+        for assignee in issue.assignees:
+            assignees.append(GitHubConverter.to_user(assignee))
 
         return Issue(
             number=issue.number,
@@ -106,6 +125,7 @@ class GitHubConverter:
             title=issue.title,
             body=issue.body or "",
             comments=comments,
+            assignees=assignees,
             status=status,
             url=issue.html_url,
             created_at=issue.created_at.isoformat() if issue.created_at else "",
@@ -118,16 +138,26 @@ class GitHubConverter:
         # Get the last approving review
         approvers: list[User] = []
         reviewers: list[User] = []
-
+        assignees: list[User] = []
+        reviews =[]
         try:
             for review in reversed(list(pr.get_reviews())):
-                if review.state != "COMMENTED":
-                    reviewers.append(GitHubConverter.to_user(review.user))
-                    if review.state == "APPROVED":
-                        approvers.append(GitHubConverter.to_user(review.user))
-                        break
+                reviewers.append(GitHubConverter.to_user(review.user))
+                reviews.append(GitHubConverter.to_pr_review(review))
+                if review.state == "APPROVED":
+                    approvers.append(GitHubConverter.to_user(review.user))
+                    break
         except GithubException:
-            logger.warning(f"Could not fetch reviews for PR #{pr.number}")
+                logger.warning(f"Could not fetch reviews for PR #{pr.number}")
+
+        for reviewer in pr.requested_reviewers:
+            reviewers.append(GitHubConverter.to_user(reviewer))
+
+        reviewers = list({reviewer.username: reviewer for reviewer in reviewers}.values())
+
+        for assignee in pr.assignees:
+            assignees.append(GitHubConverter.to_user(assignee))
+
 
         # Get merger information
         merger = User(username="Not merged", email="", type="None")
@@ -153,13 +183,19 @@ class GitHubConverter:
         created_at_str = pr.created_at.isoformat() if pr.created_at else ""
         updated_at_str = pr.updated_at.isoformat() if pr.updated_at else ""
         merged_at_str = pr.merged_at.isoformat() if pr.merged_at else None
-        changed_files = list(map(lambda file: file.filename, pr.get_files()))
+
+        if with_comment:
+            changed_files = list(map(lambda file: file.filename, pr.get_files()))
+        else:
+            changed_files = []
 
         return PullRequest(
             number=pr.number,
             title=pr.title,
             author=GitHubConverter.to_user(pr.user),
             reviewers=reviewers,
+            reviews=reviews,
+            assignees=assignees,
             body=pr.body or "",
             comments=comments,
             approvers=approvers,
