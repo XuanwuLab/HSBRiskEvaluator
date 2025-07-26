@@ -12,13 +12,34 @@ The evaluator analyzes repositories across three critical dimensions:
 
 ## Installation
 
-Ensure you have the required dependencies installed:
+### Option 1: Docker (Recommended)
+
+The easiest way to run the HSB Risk Evaluator is using Docker, which provides a consistent environment:
+
+```bash
+# Build and run the development environment
+./dev.sh
+source .venv/bin/activate
+```
+
+This will use the [`Dockerfile`](Dockerfile) to create a container with all necessary dependencies and provide an interactive shell for running the evaluator and scripts.
+
+### Option 2: Native Installation
+
+**Note: Currently only supports Debian-based systems (Ubuntu, Debian, etc.)**
+
+For native installation on Debian-series systems:
 
 ```bash
 uv sync
 uv venv
 source .venv/bin/activate
 ```
+
+**System Requirements:**
+- Debian-based Linux distribution (Ubuntu, Debian, Mint, etc.)
+- Python 3.12 or higher
+- APT package manager (for package analysis features)
 
 ## Configuration
 
