@@ -20,12 +20,35 @@ uv venv
 source .venv/bin/activate
 ```
 
-Set up your environment variables in a `.env` file:
+## Configuration
 
-```bash
-OPENAI_API_KEY = your_openrouter_api_key_here
-GITHUB_TOKEN = your_github_token_here
+### Environment Variables
+
+- `OPENAI_API_KEY` - Required for LLM-based upstream repository discovery  
+- `GITHUB_TOKEN` - Primary GitHub token for API access
+
+### Collector Settings
+
+Collector configuration options are available through `CollectorSettings`. See `src/hsbriskevaluator/collector/settings.py` for detailed configuration parameters.
+
+```python
+from hsbriskevaluator.collector.settings import CollectorSettings
+
+settings = CollectorSettings(github_tokens=["token1", "token2"])
+repo_info = await collect_all(settings=settings, ...)
 ```
+
+### Evaluator Settings  
+
+Evaluator configuration parameters are defined in `src/hsbriskevaluator/evaluator/settings.py`. Configure risk analysis thresholds and weights as needed.
+
+```python
+from hsbriskevaluator.evaluator.settings import EvaluatorSettings
+
+evaluator_settings = EvaluatorSettings()
+evaluator = HSBRiskEvaluator(repo_info, settings=evaluator_settings)
+```
+
 
 ## Quick Start
 
@@ -112,6 +135,27 @@ Processes packages and dependencies to generate metadata about package relations
 **`scripts/fetch_repo_infos.py`**  
 Fetches comprehensive repository information from GitHub for packages with upstream URLs. Collects commit history, contributor data, security information, and other repository metrics for risk analysis.
 
+#### GitHub Token Management
+
+The `scripts/fetch_repo_infos.py` script requires GitHub API access and supports multiple tokens for improved rate limiting:
+
+1. **Create `.github_tokens` file** in the project root with one token per line
+2. **Generate GitHub tokens** with repository read permissions
+3. **The script automatically distributes** API requests across available tokens
+4. **Rate limiting is handled automatically** to maximize throughput
+
+Example `.github_tokens` file:
+```text
+ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+ghp_yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+ghp_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+```
+
+**Benefits of multiple tokens:**
+- Higher API rate limits (5,000 requests/hour per token)
+- Reduced processing time for large package sets
+- Automatic failover if a token becomes rate limited
+
 ### Typical Workflow
 
 ```bash
@@ -132,6 +176,7 @@ python scripts/fetch_repo_infos.py -d data/debian
 ```
 
 All scripts support the `--directory` parameter to specify custom input/output directories and include comprehensive help documentation accessible via `--help`.
+
 
 ## Evaluation Analysis
 
