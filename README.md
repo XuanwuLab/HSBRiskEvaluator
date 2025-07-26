@@ -29,7 +29,7 @@ source .venv/bin/activate
 
 ### Collector Settings
 
-Collector configuration options are available through `CollectorSettings`. See `src/hsbriskevaluator/collector/settings.py` for detailed configuration parameters.
+Collector configuration options are available through `CollectorSettings`. See [`src/hsbriskevaluator/collector/settings.py`](src/hsbriskevaluator/collector/settings.py) for detailed configuration parameters.
 
 ```python
 from hsbriskevaluator.collector.settings import CollectorSettings
@@ -40,7 +40,7 @@ repo_info = await collect_all(settings=settings, ...)
 
 ### Evaluator Settings  
 
-Evaluator configuration parameters are defined in `src/hsbriskevaluator/evaluator/settings.py`. Configure risk analysis thresholds and weights as needed.
+Evaluator configuration parameters are defined in [`src/hsbriskevaluator/evaluator/settings.py`](src/hsbriskevaluator/evaluator/settings.py). Configure risk analysis thresholds and weights as needed.
 
 ```python
 from hsbriskevaluator.evaluator.settings import EvaluatorSettings
@@ -109,35 +109,35 @@ The `scripts/` directory contains utilities for collecting repository informatio
 
 ### 1. Package List Generation
 
-**`scripts/get_priority_packages.py`**  
+**[`scripts/get_priority_packages.py`](scripts/get_priority_packages.py)**  
 Extracts Debian packages with "required", "important", and "standard" priorities into a text file for further processing.
 
-**`scripts/get_cloud_packages.py`**  
+**[`scripts/get_cloud_packages.py`](scripts/get_cloud_packages.py)**  
 Generates lists of cloud-related packages from various sources for specialized analysis workflows.
 
 ### 2. Package Information Collection
 
-**`scripts/generate_packages_from_file.py`**  
+**[`scripts/generate_packages_from_file.py`](scripts/generate_packages_from_file.py)**  
 Reads a package list file and generates detailed package and dependency information using APT utilities. Creates `packages.yaml` and `dependencies.yaml` files with comprehensive package metadata.
 
 ### 3. Upstream Repository Discovery
 
-**`scripts/fetch_upstream_infos.py`**  
+**[`scripts/fetch_upstream_infos.py`](scripts/fetch_upstream_infos.py)**  
 Uses LLM-based analysis to discover and validate upstream Git repository URLs for packages. Updates package files with upstream repository information, which is essential for the next steps.
 
 ### 4. Metadata Generation
 
-**`scripts/generate_package_metadata.py`**  
+**[`scripts/generate_package_metadata.py`](scripts/generate_package_metadata.py)**  
 Processes packages and dependencies to generate metadata about package relationships and sibling packages sharing the same upstream repository. Creates `meta_data.yaml` files for efficient package grouping.
 
 ### 5. Repository Data Collection
 
-**`scripts/fetch_repo_infos.py`**  
+**[`scripts/fetch_repo_infos.py`](scripts/fetch_repo_infos.py)**  
 Fetches comprehensive repository information from GitHub for packages with upstream URLs. Collects commit history, contributor data, security information, and other repository metrics for risk analysis.
 
 #### GitHub Token Management
 
-The `scripts/fetch_repo_infos.py` script requires GitHub API access and supports multiple tokens for improved rate limiting:
+The [`scripts/fetch_repo_infos.py`](scripts/fetch_repo_infos.py)t  script requires GitHub API access and supports multiple tokens for improved rate limiting:
 
 1. **Create `.github_tokens` file** in the project root with one token per line
 2. **Generate GitHub tokens** with repository read permissions
@@ -163,7 +163,7 @@ ghp_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
 python scripts/get_priority_packages.py
 
 # 2. Generate package information 
-python scripts/generate_packages_from_file.py debian_priority_packages.txt -d debian
+python scripts/generate_packages_from_file.py debian_priority_packages.txt -d data/debian
 
 # 3. Fetch upstream repository URLs
 python scripts/fetch_upstream_infos.py -d data/debian
