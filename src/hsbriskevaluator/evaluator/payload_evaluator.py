@@ -1,7 +1,7 @@
 import logging
 import asyncio
 from typing import List, Set, Optional
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel, Field
 from pathlib import Path
 from hsbriskevaluator.evaluator.base import (
     BaseEvaluator,
@@ -44,10 +44,12 @@ class PayloadEvaluator(BaseEvaluator):
         allows_binary_document_files = any(detail.is_documentation for detail in files_detail)
         allows_binary_code_files = any(detail.is_code for detail in files_detail)
         allows_binary_assets_files = any(detail.is_asset for detail in files_detail)
+        allows_other_binary_files = any(not(detail.is_test_file or detail.is_documentation or detail.is_code or detail.is_asset) for detail in files_detail)
         return PayloadHiddenEvalResult(allows_binary_test_files=allows_binary_test_files,
             allows_binary_document_files=allows_binary_document_files,
             allows_binary_code_files=allows_binary_code_files,
             allows_binary_assets_files=allows_binary_assets_files,
+            allows_other_binary_files=allows_other_binary_files,
             binary_files_count=binary_files_count,
             details=files_detail
         )
@@ -57,17 +59,26 @@ class PayloadEvaluator(BaseEvaluator):
             f"Starting binary files evaluation for repository: {self.repo_info.repo_id}"
         )
 
+
         try:
+            class AnalysisResult(BaseModel):
+                results: List[PayloadHiddenDetail] = Field(
+                    description="List of detected hidden payload details.",
+                    max_length=len(self.repo_info.binary_file_list),
+                    min_length=len(self.repo_info.binary_file_list)
+                )
             response = await llm_client.chat.completions.create(
                 model=PAYLOAD_FILES_ANALYSIS_MODEL_ID,
                 messages=[
                     {"role": "system", "content": PAYLOAD_FILES_ANALYSIS_PROMPT},
                     {"role": "user", "content": f"Binary files: {self.repo_info.binary_file_list}"},
                 ],
-                response_model=List[PayloadHiddenDetail],
+                response_model=AnalysisResult, 
                 extra_body={"provider": {"require_parameters": True}},
             )
-            return response
+            print(len(self.repo_info.binary_file_list))
+            print(response.results)
+            return response.results
         except ValidationError as e:
             logger.error(
                 f"Validation error while evaluating binary files for {self.repo_info.binary_file_list}: {e}"

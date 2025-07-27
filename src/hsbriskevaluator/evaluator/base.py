@@ -15,7 +15,7 @@ class CommunityEvalResult(BaseModel):
     community_users_count: int = Field(
         description="Number of users actively participating in the community"
     )
-    direct_commits: int = Field(description="Number of direct commits to main branch")
+    direct_commits_ratio: float = Field(description="Ratio of direct commits to main branch")
     direct_commit_users_count: int = Field(
         description="Number of users that submitted some code to main branch"
     )
@@ -34,11 +34,11 @@ class CommunityEvalResult(BaseModel):
     estimated_prs_to_become_reviewer: float = Field(
         description="Estimated number of PRs needed to become a reviewer"
     )
-    prs_merged_without_discussion_count: int = Field(
-        description="Number of pull requests merged without discussion"
+    prs_merged_without_discussion_ratio: float = Field(
+        description="Ratio of pull requests merged without discussion"
     )
-    prs_with_inconsistent_description_count: int = Field(
-        description="Number of PRs where description is inconsistent with implementation"
+    prs_with_inconsistent_description_ratio: float = Field(
+        description="Ratio of PRs where description is inconsistent with implementation"
     )
     avg_participants_per_issue: float = Field(
         description="Average number of participants discussing each issue"
@@ -77,6 +77,9 @@ class PayloadHiddenEvalResult(BaseModel):
     allows_binary_assets_files: bool = Field(
         description="Whether repository allows submitting binary files as assets"
     )
+    allows_other_binary_files: bool = Field(
+        description="Whether repository allows submitting binary files as other files"
+    )
     binary_files_count: int = Field(
         description="Total number of binary files in repository"
     )
@@ -85,29 +88,22 @@ class PayloadHiddenEvalResult(BaseModel):
         description="Detailed analysis of binary files and their classification",
     )
 
-
 class DependencyDetail(BaseModel):
-    """Analysis result for dependency classification"""
-
-    os_default_dependent: list[Dependent]
-    mainstream_dependent: list[Dependent]
-    cloud_product_dependent: list[Dependent]
-
+    name: str = Field(description="Name of the package")
+    labels: list[str] = Field(description="importance labels associated with the package")
+    type: str = Field(description="Type of dependency (e.g., 'Depends', 'PreDepends', 'Self')")
 
 class DependencyEvalResult(BaseModel):
     """Software Supply Chain Dependency Location evaluation results"""
 
-    is_os_default_dependency: bool = Field(
-        description="Whether repository is direct/indirect dependency of OS default software"
+    is_important_packages_dependency: bool = Field(
+        description="Whether repository is direct/indirect dependency of some important packages"
     )
-    is_mainstream_os_dependency: bool = Field(
-        description="Whether repository is direct/indirect dependency of mainstream OS software"
+    is_important_package: bool = Field(
+        description="Whether repository is considered important package itself"
     )
-    is_cloud_product_dependency: bool = Field(
-        description="Whether repository is direct/indirect dependency of mainstream cloud products"
-    )
-    details: Optional[DependencyDetail] = Field(
-        default=None, description="Detailed analysis of dependency classification"
+    details: list[DependencyDetail] = Field(
+        description="Detailed analysis of dependency classification"
     )
 
 

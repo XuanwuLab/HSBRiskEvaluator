@@ -17,7 +17,7 @@ from hsbriskevaluator.utils.prompt import (
     PR_CONSISTENCY_ANALYSIS_PROMPT,
     PR_CONSISTENCY_ANALYSIS_MODEL_ID,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class CommunityEvaluator(BaseEvaluator):
 
         try:
             # Analyze contributors and their roles
-            direct_commits = self._count_direct_commits()
+            direct_commits_ratio = self._count_direct_commits_ratio()
             direct_commit_users = self._count_direct_commit_users()
             community_users = self._count_community_users()
             maintainers = self._count_maintainers()
@@ -67,9 +67,9 @@ class CommunityEvaluator(BaseEvaluator):
             estimated_prs_to_become_reviewer = self._estimated_prs_to_become_reviewer()
 
             # Analyze PR and issue discussions
-            prs_without_discussion = self._count_prs_without_discussion()
-            prs_with_inconsistent_desc = (
-                await self._count_prs_with_inconsistent_description()
+            prs_without_discussion_ratio = self._count_prs_without_discussion_ratio()
+            prs_with_inconsistent_desc_ratio = (
+                await self._count_prs_with_inconsistent_description_ratio()
             )
 
             # Calculate community activity metrics
@@ -86,15 +86,15 @@ class CommunityEvaluator(BaseEvaluator):
                 watchers_count=self.repo_info.basic_info.watchers_count,
                 forks_count=self.repo_info.basic_info.forks_count,
                 community_users_count=community_users,
-                direct_commits=direct_commits,
+                direct_commits_ratio=direct_commits_ratio,
                 direct_commit_users_count=direct_commit_users,
                 maintainers_count=maintainers,
                 pr_reviewers_count=pr_reviewers,
                 required_reviewers_distribution=required_reviewers,
                 estimated_prs_to_become_maintainer=estimated_prs_to_become_maintainer,
                 estimated_prs_to_become_reviewer=estimated_prs_to_become_reviewer,
-                prs_merged_without_discussion_count=prs_without_discussion,
-                prs_with_inconsistent_description_count=prs_with_inconsistent_desc,
+                prs_merged_without_discussion_ratio=prs_without_discussion_ratio,
+                prs_with_inconsistent_description_ratio=prs_with_inconsistent_desc_ratio,
                 avg_participants_per_issue=avg_participants_per_issue,
                 avg_participants_per_pr=avg_participants_per_pr,
                 community_activity_score=community_activity_score,
@@ -146,6 +146,9 @@ class CommunityEvaluator(BaseEvaluator):
             )
         )
 
+    def _count_direct_commits_ratio(self) -> float:
+        return len(self._list_direct_commits())/len(self.repo_info.commit_list) if self.repo_info.commit_list else 0.0
+
     def _list_direct_commit_users(self) -> list[User]:
         unique_contributors = set()
         for commit in self._list_direct_commits():
@@ -164,8 +167,6 @@ class CommunityEvaluator(BaseEvaluator):
         logger.debug(f"Maintainers: {unique_contributors}")
         return list(unique_contributors)
 
-    def _count_direct_commits(self) -> int:
-        return len(self._list_direct_commits())
 
     def _count_direct_commit_users(self) -> int:
         return len(
@@ -242,7 +243,7 @@ class CommunityEvaluator(BaseEvaluator):
         logger.debug(
             f"Average time to become maintainer: {mean(activities) if len(activities) else -1.0} PRs"
         )
-        return mean(activities) if len(activities) else -1.0
+        return mean(activities) if len(activities) else 0.0
 
     def _estimated_prs_to_become_reviewer(self) -> float:
         activities = []
@@ -290,7 +291,7 @@ class CommunityEvaluator(BaseEvaluator):
         logger.debug(
             f"Average time to become reviewer: {mean(activities) if len(activities) else 0.0} PRs"
         )
-        return mean(activities) if len(activities) else -1.0
+        return mean(activities) if len(activities) else 0.0
 
     def _analyze_required_reviewers(self) -> dict[int, float]:
         """Estimate minimum required reviewers for PR approval"""
@@ -306,21 +307,19 @@ class CommunityEvaluator(BaseEvaluator):
             return {}
 
         prs_with_approvers = {}
-        prs_with_approvers[-1] = self._count_direct_commits()
         for pr in merged_prs:
             approvers_count = len(pr.approvers)
             if approvers_count not in prs_with_approvers.keys():
                 prs_with_approvers[approvers_count] = 0
             prs_with_approvers[approvers_count] += 1
-        pr_count = sum(prs_with_approvers.values())
         for key in prs_with_approvers.keys():
-            prs_with_approvers[key] /= pr_count
-            len(merged_prs)
+            prs_with_approvers[key] /= len(merged_prs)
         return prs_with_approvers
 
-    def _count_prs_without_discussion(self) -> int:
+    def _count_prs_without_discussion_ratio(self) -> float:
         """Count PRs merged without any discussion"""
         prs_without_discussion = 0
+        total_prs=0
 
         for pr in self.repo_info.pr_list:
             if pr.status == "merged":
@@ -328,11 +327,12 @@ class CommunityEvaluator(BaseEvaluator):
                 # This is a simplified check - in practice, we'd need PR comments data
                 if len(pr.comments) == 0 and not pr.approvers:
                     prs_without_discussion += 1
+                total_prs+=1
 
         logger.debug(f"PRs merged without discussion: {prs_without_discussion}")
-        return prs_without_discussion
+        return prs_without_discussion/total_prs if total_prs>0 else 0.0
 
-    async def _count_prs_with_inconsistent_description(self) -> int:
+    async def _count_prs_with_inconsistent_description_ratio(self) -> float:
         """Count PRs where description is inconsistent with implementation using LLM"""
         inconsistent_count = 0
 
@@ -376,13 +376,19 @@ class CommunityEvaluator(BaseEvaluator):
                 
 
         logger.debug(f"PRs with inconsistent descriptions: {inconsistent_count}")
-        return inconsistent_count
+        return inconsistent_count / len(prs_to_analyze) if prs_to_analyze else 0.0
 
     async def _analyze_pr_consistency(self, prs: List[PullRequest]) -> List[PRInconsistencyAnalysis]:
         """Use LLM to analyze if PR description matches its likely implementation"""
 
         logger.info(f"Start analysis for PR {list(map(lambda pr: pr.number, prs))}")
         async with self._semaphore:  # Rate limiting
+            class AnalysisResult(BaseModel):
+                results: List[PRInconsistencyAnalysis] = Field(
+                    description="List of detected consistency details.",
+                    max_length=len(prs),
+                    min_length=len(prs)
+                )
             def simplify_pr(pr:PullRequest)->Dict:
                 return {'title': pr.title, 'author':pr.author, 'status': pr.status, 'created_at':pr.created_at, 'merged_at':pr.merged_at or 'Not merged', 'changed_files':pr.changed_files,'body':pr.body}
 
@@ -396,12 +402,12 @@ class CommunityEvaluator(BaseEvaluator):
                     client=self.client,
                     model_id=self.llm_model_name,
                     messages=messages,
-                    response_model=List[PRInconsistencyAnalysis],
+                    response_model=AnalysisResult,
                 )
-                return analysis
+                return analysis.results
             except Exception as e:
                 logger.warning(f"LLM analysis failed for PR {list(map(lambda pr: pr.number, prs))}: {str(e)}")
-                return False
+                return [PRInconsistencyAnalysis(in_consistent=False, confidence=0.0, reason="LLM analysis failed") for _ in prs]
 
     def _calculate_avg_participants_per_issue(self) -> float:
         """Calculate average number of participants per issue"""

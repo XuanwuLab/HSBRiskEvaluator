@@ -58,32 +58,36 @@ You will be given a list of binary file paths from a software repository. Your t
     * `is_code`: A boolean (`true` or `false`) indicating if the file is part of the codebase.
     * `is_asset`: A boolean (`true` or `false`) indicating if the file is part of the assets.
     * `reason`: A brief string explaining your classification based on the path's structure and conventions.
-3.  Combine all the individual JSON objects into a single JSON array for the final output.
+3.  Combine all the individual JSON objects into a single JSON array.
+4.  The Final output should be like `{"results": [<list of objects>]}`.
 </requirement>
 
 <example>
 <user_input>
-["src/test/data/golden_files/approved_user_avatar.jpg", "docs/media/screenshot-v1.png", "assets/app_icon.ico"]
+["src/test/data/golden_files/approved_user_avatar.jpg", "docs/media/screenshot-v1.png"]
 </user_input>
 <model_output>
-[
-  {
-    "reason": "File is located in a 'src/test/data' directory, a common pattern for test resources or fixtures used in unit or integration tests.",
-    "file_type": "test_resource",
-    "is_test_file": true,
-    "is_documentation": false,
-    "is_code": false
-    "file_path": "src/test/data/golden_files/approved_user_avatar.jpg"
-  },
-  {
-    "reason": "File is located in a 'docs/media' directory, which strongly indicates it's an image used within the project's documentation.",
-    "file_type": "documentation_image",
-    "is_test_file": false,
-    "is_documentation": true,
-    "is_code": false,
-    "file_path": "docs/media/screenshot-v1.png"
-  },
-]
+{
+  "results":
+    [
+      {
+        "reason": "File is located in a 'src/test/data' directory, a common pattern for test resources or fixtures used in unit or integration tests.",
+        "file_type": "test_resource",
+        "is_test_file": true,
+        "is_documentation": false,
+        "is_code": false,
+        "file_path": "src/test/data/golden_files/approved_user_avatar.jpg"
+      },
+      {
+        "reason": "File is located in a 'docs/media' directory, which strongly indicates it's an image used within the project's documentation.",
+        "file_type": "documentation_image",
+        "is_test_file": false,
+        "is_documentation": true,
+        "is_code": false,
+        "file_path": "docs/media/screenshot-v1.png"
+      }
+    ]
+}
 </model_output>
 </example>
 """
@@ -107,7 +111,7 @@ You will be given a JSON array where each object contains the metadata for a sin
     * `confidence`: A float between 0.0 and 1.0 representing your confidence in the assessment.
     * `reason`: A brief string explaining your conclusion, referencing specific evidence from the PR data.
 4.  Combine all the individual analysis objects into a single JSON array. **The order of objects in the output array must match the order of the PRs in the input array.**
-5.  The final output must be only the JSON array and nothing else.
+4.  The Final output should be like `{"results": [<list of objects>]}`.
 </requirement>
 
 <example>

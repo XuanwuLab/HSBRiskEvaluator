@@ -1,4 +1,6 @@
 from pydantic_settings import BaseSettings
+from pathlib import Path
+from hsbriskevaluator.utils.file import get_data_dir
 
 class EvaluatorSettings(BaseSettings):
     # LLM Configuration
@@ -18,12 +20,14 @@ class EvaluatorSettings(BaseSettings):
     prs_to_analyze_limit: int = 300
     pr_consistency_confidence_threshold: float = 0.7
     pr_batch_size: int = 30
-    
+
     # Community Activity Scoring
     max_issue_participants_for_normalization: float = 5.0
     max_pr_participants_for_normalization: float = 3.0
     issue_activity_weight: float = 0.3
     pr_activity_weight: float = 0.7
+   
+    package_list_file: Path = get_data_dir() / "debian.yaml"
     
     # HTTP Timeouts
     http_request_timeout: int = 10
