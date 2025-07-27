@@ -94,6 +94,7 @@ class CIEvaluator(BaseEvaluator):
                     f"Failed to analyze workflow {workflows[i].name}: {str(result)}"
                 )
                 # Create a fallback result for failed analysis
+                """
                 valid_results.append(
                     WorkflowAnalysis(
                         name=workflows[i].name,
@@ -107,6 +108,7 @@ class CIEvaluator(BaseEvaluator):
                         ),
                     )
                 )
+                """
             else:
                 valid_results.append(result)
 
