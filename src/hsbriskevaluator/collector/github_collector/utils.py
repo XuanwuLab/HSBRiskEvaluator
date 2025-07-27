@@ -62,7 +62,8 @@ class LocalRepoUtils:
             try:
                 data_dir = get_data_dir()
                 repo_dir_name = repo_name.replace("/", "-")
-                local_repo_path = data_dir / repo_dir_name
+                local_repo_path = data_dir / "repo" / repo_dir_name
+                local_repo_path.parent.mkdir(parents=True, exist_ok=True)
 
                 # Clean existing directory
                 if local_repo_path.exists():

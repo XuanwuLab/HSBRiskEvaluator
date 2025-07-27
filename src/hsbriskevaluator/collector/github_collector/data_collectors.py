@@ -558,6 +558,7 @@ class GitHubDataCollector:
         Args:
             repo_name: Repository name in format 'owner/repo'
         """
+        logger.info(f"Starting commit collection for repository: {repo_name}")
 
         def _fetch_commits():
             commits = []
@@ -566,33 +567,103 @@ class GitHubDataCollector:
             since_timestamp = None
             if since_time:
                 since_timestamp = datetime.now(tz=timezone.utc) - since_time
+
+            start_time = time.time()
             count = 0
+            page_count = 0
+            rate_limit_hits = 0
+
+            logger.info(
+                f"Commit collection parameters: max_commits={max_commits}, since_time={since_time}"
+            )
 
             try:
                 # Get repository commits
+                logger.debug(f"Fetching commits for {repo_name}")
                 repo = self._get_repository(repo_name)
                 commits_paginated = repo.get_commits()
 
-                # Iterate through all commits across all pages
-                for commit in commits_paginated:
-                    # Check max limit
-                    if max_commits is not None and count >= max_commits:
-                        break
+                # Get total count if available (for progress tracking)
+                try:
+                    total_commits = commits_paginated.totalCount
+                    logger.info(f"Total commits available in repository: {total_commits}")
+                except Exception:
+                    total_commits = None
+                    logger.debug("Could not determine total commit count")
 
-                    # Check time limit before processing to avoid unnecessary API calls
-                    if (
-                        since_timestamp is not None
-                        and commit.commit.committer.date < since_timestamp
-                    ):
-                        break
+                # Determine effective limit for progress bar
+                effective_limit = min(
+                    max_commits or float("inf"), total_commits or float("inf")
+                )
+                if effective_limit == float("inf"):
+                    effective_limit = None
 
-                    commits.append(self.converter.to_commit(commit))
-                    count += 1
+                # Create progress bar with progress manager
+                commits_desc = f"Commits from {repo_name}"
+                
+                # Use progress manager for sub-progress tracking
+                with progress_manager.create_sub_progress(
+                    total=effective_limit,
+                    desc=commits_desc,
+                    unit="commits",
+                    parent_id="commits"
+                ) as commits_progress:
 
-                logger.info(f"Retrieved {len(commits)} commits for {repo_name}")
+                    # Iterate through all commits across all pages
+                    for commit in commits_paginated:
+                        page_count += 1
+
+                        # Check max limit
+                        if max_commits is not None and count >= max_commits:
+                            logger.info(f"Reached maximum commit limit: {max_commits}")
+                            break
+
+                        # Check time limit before processing to avoid unnecessary API calls
+                        if (
+                            since_timestamp is not None
+                            and commit.commit.committer.date < since_timestamp
+                        ):
+                            logger.info(
+                                f"Reached time limit: commit created at {commit.commit.committer.date} is older than {since_timestamp}"
+                            )
+                            break
+
+                        try:
+                            converted_commit = self.converter.to_commit(commit)
+                            commits.append(converted_commit)
+                            commits_progress.update(1)
+                            count += 1
+                            logger.debug(
+                                f"Collected commit {commit.sha[:8]}: {commit.commit.message[:50]}..."
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to convert commit {commit.sha[:8]}: {e}"
+                            )
+
+                elapsed = time.time() - start_time
+                logger.info(
+                    f"Successfully retrieved {len(commits)} commits for {repo_name} in {elapsed:.2f}s"
+                )
+                logger.info(
+                    f"Collection stats: processed {page_count} total items, "
+                    f"collected {count} commits, rate limit hits: {rate_limit_hits}"
+                )
+
                 return commits
+
             except GithubException as e:
-                logger.error(f"Error fetching commits: {e}")
+                elapsed = time.time() - start_time
+                logger.error(
+                    f"GitHub API error fetching commits for {repo_name} after {elapsed:.2f}s: {e}"
+                )
+                return commits  # Return what we have so far
+
+            except Exception as e:
+                elapsed = time.time() - start_time
+                logger.error(
+                    f"Unexpected error fetching commits for {repo_name} after {elapsed:.2f}s: {e}"
+                )
                 return []
 
         return await self._run_in_executor(_fetch_commits)

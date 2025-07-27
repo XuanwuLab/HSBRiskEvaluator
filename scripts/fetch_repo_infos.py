@@ -68,14 +68,14 @@ def get_repo_name(git_url: str) -> str:
         logger.error(f"Failed to extract repository name from URL '{git_url}': {e}")
         raise
 
-def detect_child(pkt_name: str, git_url: str, meta_data_lock):
+def detect_sibling(pkt_name: str, git_url: str, meta_data_lock):
     with meta_data_lock:
         meta_data_path = get_data_dir() / "meta_data.yaml"
         meta_data_by_url_path = get_data_dir() / "meta_data_by_url.yaml"
         meta_data = load_yaml(meta_data_path) 
         meta_data_by_url = load_yaml(meta_data_by_url_path)
-        child = meta_data_by_url.get(git_url)
-        if not child:
+        siblings = meta_data_by_url.get(git_url, [])
+        if not siblings:
             meta_data_by_url[git_url] = []
 
         if pkt_name not in meta_data_by_url[git_url]:
@@ -86,16 +86,15 @@ def detect_child(pkt_name: str, git_url: str, meta_data_lock):
             "sibling": meta_data_by_url[git_url]
         }
         for pkt in meta_data_by_url[git_url]:
-            if pkt_name not in meta_data[pkt]["sibling"]: 
+            if pkt in meta_data and pkt_name not in meta_data[pkt]["sibling"]: 
                 meta_data[pkt]["sibling"].append(pkt_name)
         save_yaml(meta_data, meta_data_path)
         save_yaml(meta_data_by_url, meta_data_by_url_path)
 
-        if not child:
-            return None
-        result = get_data_dir() / "repo_info" / f"{child[0]}.yaml" 
-        if result.exists():
-            return result
+        for sibling in siblings:
+            path = get_data_dir() / "repo_info" / f"{sibling}.yaml" 
+            if path.exists():
+                return path
         return None
     
 def collect_one(package_info: Dict, github_tokens: list, progress_counter: ValueProxy, meta_data_lock):
@@ -165,7 +164,7 @@ def collect_one(package_info: Dict, github_tokens: list, progress_counter: Value
             return {"status": "skipped", "package": package_name}
 
         process_logger.info("OK, we will try to find existing package through slow path")
-        sibling_repo_info_path = detect_child(package_name, git_url, meta_data_lock)
+        sibling_repo_info_path = detect_sibling(package_name, git_url, meta_data_lock)
         if sibling_repo_info_path:
             process_logger.info(f"found sibling {sibling_repo_info_path}")
             rel_path = os.path.relpath(
@@ -216,11 +215,38 @@ def collect_repo_info(package_file: Path, max_concurrency: int = 5):
     package_dict_by_name = load_yaml(package_file)
     
     # Sort packages so that for same upstream_git_url, one goes first, others go last
-    package_dict_by_name = sort_packages_by_git_url(package_dict_by_name)
-    logger.info(f"Sorted packages by upstream_git_url - processing {len(package_dict_by_name)} packages")
-    total_packages = len(package_dict_by_name)
+    unique_packages, duplicated_packages = get_unique_packages_by_git_url(package_dict_by_name)
+    total_packages = len(unique_packages) + len(duplicated_packages)
+    logger.info(f"Sorted packages by upstream_git_url - processing {len(unique_packages)} unique packages and {len(duplicated_packages)} end packages")
     
-    progress_manager.print_status(f"Starting to process {total_packages} packages from {package_file}")
+    # Process unique packages first
+    if unique_packages:
+        logger.info(f"Processing {len(unique_packages)} unique packages...")
+        _process_package_batch(unique_packages, max_concurrency, "unique packages")
+    
+    # Process duplicated packages second  
+    if duplicated_packages:
+        logger.info(f"Processing {len(duplicated_packages)} duplicated packages...")
+        _process_package_batch(duplicated_packages, max_concurrency, "duplicated packages")
+
+    logger.info(f"Completed processing all {total_packages} packages")
+
+
+def _process_package_batch(package_dict: Dict, max_concurrency: int, batch_name: str):
+    """
+    Process a batch of packages with multiprocessing.
+    
+    Args:
+        package_dict (Dict): Dictionary of package_name -> package_info to process
+        max_concurrency (int): Maximum number of concurrent processes
+        batch_name (str): Name of the batch for logging
+    """
+    if not package_dict:
+        return
+        
+    total_packages = len(package_dict)
+    
+    progress_manager.print_status(f"Starting to process {total_packages} packages for {batch_name}")
 
     # Read GitHub tokens
     github_tokens = []
@@ -240,7 +266,7 @@ def collect_repo_info(package_file: Path, max_concurrency: int = 5):
         # Prepare arguments for multiprocessing
         package_list = [
             (package_info, github_tokens, progress_counter, meta_data_lock)
-            for package_name, package_info in package_dict_by_name.items()
+            for package_name, package_info in package_dict.items()
         ]
 
         # Use multiprocessing Pool with progress monitoring via progress manager
@@ -249,7 +275,7 @@ def collect_repo_info(package_file: Path, max_concurrency: int = 5):
             async_result = pool.starmap_async(collect_one, package_list)
             
             # Monitor progress with progress manager
-            with progress_manager.create_main_progress(total_packages, "Processing packages", "pkg") as main_pbar:
+            with progress_manager.create_main_progress(total_packages, f"Processing {batch_name}", "pkg") as main_pbar:
                 while not async_result.ready():
                     current_progress = progress_counter.value
                     main_pbar.n = current_progress
@@ -276,31 +302,31 @@ def collect_repo_info(package_file: Path, max_concurrency: int = 5):
         
         elapsed_time = time.time() - start_time
         
-        progress_manager.print_status(f"Processing completed in {elapsed_time:.2f} seconds")
-        progress_manager.print_status(f"Statistics: {dict(stats)}")
+        progress_manager.print_status(f"Processing {batch_name} completed in {elapsed_time:.2f} seconds")
+        progress_manager.print_status(f"Statistics for {batch_name}: {dict(stats)}")
         
         if errors:
-            progress_manager.print_status(f"Found {len(errors)} errors during processing (see log file for details)")
-            logger.warning(f"Found {len(errors)} errors during processing:")
+            progress_manager.print_status(f"Found {len(errors)} errors during {batch_name} processing (see log file for details)")
+            logger.warning(f"Found {len(errors)} errors during {batch_name} processing:")
             for error in errors[:5]:  # Show first 5 errors
                 logger.warning(f"  - {error.get('package', 'unknown')}: {error.get('error', 'unknown error')}")
             if len(errors) > 5:
                 logger.warning(f"  ... and {len(errors) - 5} more errors")
         
-        progress_manager.print_status("All tasks completed!")
+        progress_manager.print_status(f"{batch_name} processing completed!")
         progress_manager.print_status(f"📋 Detailed logs: {progress_manager.get_log_file_path()}")
 
 
-def sort_packages_by_git_url(package_dict_by_name: Dict) -> Dict:
+def get_unique_packages_by_git_url(package_dict_by_name: Dict) -> tuple[Dict, Dict]:
     """
     Sort packages so that for packages with the same upstream_git_url,
-    one goes to the front and others go to the end.
+    one goes to the unique and others go to the duplicated.
     
     Args:
         package_dict_by_name: Dictionary of package_name -> package_info
         
     Returns:
-        Dict: Reordered dictionary with same-URL packages sorted appropriately
+        Tuple[Dict, Dict]: (unique_packages, duplicated_packages) dictionaries
     """
     from collections import defaultdict
     
@@ -316,23 +342,26 @@ def sort_packages_by_git_url(package_dict_by_name: Dict) -> Dict:
             packages_without_url.append((package_name, package_info))
     
     # Build the sorted result
-    front_packages = []  # First occurrence of each URL group
-    end_packages = []    # Additional packages with same URLs
+    unique_packages = []  # First occurrence of each URL group
+    duplicated_packages = []    # Additional packages with same URLs
     
     for git_url, packages in url_groups.items():
         if len(packages) == 1:
-            # Single package with this URL - goes to front
-            front_packages.extend(packages)
+            # Single package with this URL - goes to unique
+            unique_packages.extend(packages)
         else:
-            # Multiple packages with same URL - first goes to front, others to end
-            front_packages.append(packages[0])
-            end_packages.extend(packages[1:])
+            # Multiple packages with same URL - first goes to unique, others to duplicated
+            unique_packages.append(packages[0])
+            duplicated_packages.extend(packages[1:])
     
-    # Combine: front packages + packages without URL + end packages
-    sorted_packages = front_packages + packages_without_url + end_packages
+    # Add packages without URL to unique packages
+    unique_packages.extend(packages_without_url)
     
-    # Convert back to dictionary maintaining the sorted order
-    return {package_name: package_info for package_name, package_info in sorted_packages} 
+    # Convert to dictionaries
+    unique_dict = {package_name: package_info for package_name, package_info in unique_packages}
+    duplicated_dict = {package_name: package_info for package_name, package_info in duplicated_packages}
+
+    return unique_dict, duplicated_dict
 
 
 def main():
