@@ -24,13 +24,13 @@ class CollectorSettings(BaseSettings):
     # Specific limits for each data type (None falls back to global)
     issues_max_count: Optional[int] = 100
     issues_since_days: Optional[int] = None
-    issues_without_comment_max_count: Optional[int] = 1
+    issues_without_comment_max_count: Optional[int] = 0
     issues_without_comment_since_days: Optional[int] = None
 
-    pull_requests_max_count: Optional[int] = None
+    pull_requests_max_count: Optional[int] = 100
     pull_requests_since_days: Optional[int] = None
-    pull_requests_without_comment_max_count: Optional[int] = 1
-    pull_requests_without_comment_since_days: Optional[int] = None
+    pull_requests_without_comment_max_count: Optional[int] = 1000
+    pull_requests_without_comment_since_days: Optional[int] = 365*5
     
     # Separate limits for merged, closed, and open PRs
     merged_pull_requests_max_count: Optional[int] = 100
@@ -45,107 +45,102 @@ class CollectorSettings(BaseSettings):
     events_max_count: Optional[int] = None
     events_since_days: Optional[int] = None
 
-    commits_max_count: Optional[int] = None
-    commits_since_days: Optional[int] = None
+    commits_max_count: Optional[int] = 1000
+    commits_since_days: Optional[int] = 365 * 5
 
     workflows_max_count: Optional[int] = None
 
-    check_runs_max_count: Optional[int] = None
+    check_runs_max_count: Optional[int] = 3
     check_runs_commit_limit: int = 3
     check_runs_pr_limit: int = 3
 
-    token_rotation_interval: int = 2
-
+    token_rotation_interval: int = 5
     def get_max_issues(self) -> Optional[int]:
         """Get max issues count with fallback to global default"""
-        return self.issues_max_count or self.global_max_count
+        return self.issues_max_count if self.issues_max_count is not None else self.global_max_count
 
     def get_max_pull_requests(self) -> Optional[int]:
         """Get max pull requests count with fallback to global default"""
-        return self.pull_requests_max_count or self.global_max_count
+        return self.pull_requests_max_count if self.pull_requests_max_count is not None else self.global_max_count
 
     def get_max_events(self) -> Optional[int]:
         """Get max events count with fallback to global default"""
-        return self.events_max_count or self.global_max_count
+        return self.events_max_count if self.events_max_count is not None else self.global_max_count
 
     def get_max_commits(self) -> Optional[int]:
         """Get max commits count with fallback to global default"""
-        return self.commits_max_count or self.global_max_count
+        return self.commits_max_count if self.commits_max_count is not None else self.global_max_count
 
     def get_max_workflows(self) -> Optional[int]:
         """Get max workflows count with fallback to global default"""
-        return self.workflows_max_count or self.global_max_count
+        return self.workflows_max_count if self.workflows_max_count is not None else self.global_max_count
 
     def get_max_check_runs(self) -> Optional[int]:
         """Get max check runs count with fallback to global default"""
-        return self.check_runs_max_count or self.global_max_count
+        return self.check_runs_max_count if self.check_runs_max_count is not None else self.global_max_count
 
     def get_issues_since_time(self) -> Optional[timedelta]:
         """Get issues since time with fallback to global default"""
-        days = self.issues_since_days or self.global_since_days
+        days = self.issues_since_days if self.issues_since_days is not None else self.global_since_days
         return timedelta(days=days) if days is not None else None
 
     def get_pull_requests_since_time(self) -> Optional[timedelta]:
         """Get pull requests since time with fallback to global default"""
-        days = self.pull_requests_since_days or self.global_since_days
+        days = self.pull_requests_since_days if self.pull_requests_since_days is not None else self.global_since_days
         return timedelta(days=days) if days is not None else None
 
     def get_events_since_time(self) -> Optional[timedelta]:
         """Get events since time with fallback to global default"""
-        days = self.events_since_days or self.global_since_days
+        days = self.events_since_days if self.events_since_days is not None else self.global_since_days
         return timedelta(days=days) if days is not None else None
 
     def get_commits_since_time(self) -> Optional[timedelta]:
         """Get commits since time with fallback to global default"""
-        days = self.commits_since_days or self.global_since_days
+        days = self.commits_since_days if self.commits_since_days is not None else self.global_since_days
         return timedelta(days=days) if days is not None else None
 
     # New getter methods for issues without comments
     def get_max_issues_without_comment(self) -> Optional[int]:
         """Get max issues without comment count with fallback to global default"""
-        return self.issues_without_comment_max_count or self.global_max_count
+        return self.issues_without_comment_max_count if self.issues_without_comment_max_count is not None else self.global_max_count
 
     def get_issues_without_comment_since_time(self) -> Optional[timedelta]:
         """Get issues without comment since time with fallback to global default"""
-        days = self.issues_without_comment_since_days or self.global_since_days
+        days = self.issues_without_comment_since_days if self.issues_without_comment_since_days is not None else self.global_since_days
         return timedelta(days=days) if days is not None else None
 
-    # New getter methods for pull requests without comments
     def get_max_pull_requests_without_comment(self) -> Optional[int]:
         """Get max pull requests without comment count with fallback to global default"""
-        return self.pull_requests_without_comment_max_count or self.global_max_count
+        return self.pull_requests_without_comment_max_count if self.pull_requests_without_comment_max_count is not None else self.global_max_count
 
     def get_pull_requests_without_comment_since_time(self) -> Optional[timedelta]:
         """Get pull requests without comment since time with fallback to global default"""
-        days = self.pull_requests_without_comment_since_days or self.global_since_days
+        days = self.pull_requests_without_comment_since_days if self.pull_requests_without_comment_since_days is not None else self.global_since_days
         return timedelta(days=days) if days is not None else None
 
-    # New getter methods for merged pull requests
     def get_max_merged_pull_requests(self) -> Optional[int]:
         """Get max merged pull requests count with fallback to global default"""
-        return self.merged_pull_requests_max_count or self.global_max_count
+        return self.merged_pull_requests_max_count if self.merged_pull_requests_max_count is not None else self.global_max_count
 
     def get_merged_pull_requests_since_time(self) -> Optional[timedelta]:
         """Get merged pull requests since time with fallback to global default"""
-        days = self.merged_pull_requests_since_days or self.global_since_days
+        days = self.merged_pull_requests_since_days if self.merged_pull_requests_since_days is not None else self.global_since_days
         return timedelta(days=days) if days is not None else None
 
-    # New getter methods for closed pull requests
     def get_max_closed_pull_requests(self) -> Optional[int]:
         """Get max closed pull requests count with fallback to global default"""
-        return self.closed_pull_requests_max_count or self.global_max_count
+        return self.closed_pull_requests_max_count if self.closed_pull_requests_max_count is not None else self.global_max_count
 
     def get_closed_pull_requests_since_time(self) -> Optional[timedelta]:
         """Get closed pull requests since time with fallback to global default"""
-        days = self.closed_pull_requests_since_days or self.global_since_days
+        days = self.closed_pull_requests_since_days if self.closed_pull_requests_since_days is not None else self.global_since_days
         return timedelta(days=days) if days is not None else None
 
-    # New getter methods for open pull requests
     def get_max_open_pull_requests(self) -> Optional[int]:
         """Get max open pull requests count with fallback to global default"""
-        return self.open_pull_requests_max_count or self.global_max_count
+        return self.open_pull_requests_max_count if self.open_pull_requests_max_count is not None else self.global_max_count
 
     def get_open_pull_requests_since_time(self) -> Optional[timedelta]:
         """Get open pull requests since time with fallback to global default"""
-        days = self.open_pull_requests_since_days or self.global_since_days
+        days = self.open_pull_requests_since_days if self.open_pull_requests_since_days is not None else self.global_since_days
         return timedelta(days=days) if days is not None else None
