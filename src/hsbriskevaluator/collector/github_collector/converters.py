@@ -141,12 +141,11 @@ class GitHubConverter:
         assignees: list[User] = []
         reviews =[]
         try:
-            for review in reversed(list(pr.get_reviews())):
+            for review in pr.get_reviews():
                 reviewers.append(GitHubConverter.to_user(review.user))
                 reviews.append(GitHubConverter.to_pr_review(review))
                 if review.state == "APPROVED":
                     approvers.append(GitHubConverter.to_user(review.user))
-                    break
         except GithubException:
                 logger.warning(f"Could not fetch reviews for PR #{pr.number}")
 
