@@ -28,11 +28,11 @@ class CommunityEvalResult(BaseModel):
     required_reviewers_distribution: Dict[int, float] = Field(
         description="Distribution of reviewers required to approve a PR before merge"
     )
-    estimated_prs_to_become_maintainer: float = Field(
-        description="Estimated number of PRs needed to become a maintainer"
+    prs_needed_to_become_maintainer: Dict[int, int]= Field(
+        description="Distribution of number of PRs needed to become a maintainer"
     )
-    estimated_prs_to_become_reviewer: float = Field(
-        description="Estimated number of PRs needed to become a reviewer"
+    prs_needed_to_become_reviewer: Dict[int, int] = Field(
+        description="Distribution of number of PRs needed to become a reviewer"
     )
     prs_merged_without_discussion_ratio: float = Field(
         description="Ratio of pull requests merged without discussion"

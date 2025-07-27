@@ -61,10 +61,8 @@ class CommunityEvaluator(BaseEvaluator):
             maintainers = self._count_maintainers()
             pr_reviewers = self._count_pr_reviewers()
             required_reviewers = self._analyze_required_reviewers()
-            estimated_prs_to_become_maintainer = (
-                self._estimated_prs_to_become_maintainer()
-            )
-            estimated_prs_to_become_reviewer = self._estimated_prs_to_become_reviewer()
+            prs_needed_to_become_maintainer = self._prs_needed_to_become_maintainer()
+            prs_needed_to_become_reviewer = self._prs_needed_to_become_reviewer()
 
             # Analyze PR and issue discussions
             prs_without_discussion_ratio = self._count_prs_without_discussion_ratio()
@@ -91,8 +89,8 @@ class CommunityEvaluator(BaseEvaluator):
                 maintainers_count=maintainers,
                 pr_reviewers_count=pr_reviewers,
                 required_reviewers_distribution=required_reviewers,
-                estimated_prs_to_become_maintainer=estimated_prs_to_become_maintainer,
-                estimated_prs_to_become_reviewer=estimated_prs_to_become_reviewer,
+                prs_needed_to_become_maintainer=prs_needed_to_become_maintainer,
+                prs_needed_to_become_reviewer=prs_needed_to_become_reviewer,
                 prs_merged_without_discussion_ratio=prs_without_discussion_ratio,
                 prs_with_inconsistent_description_ratio=prs_with_inconsistent_desc_ratio,
                 avg_participants_per_issue=avg_participants_per_issue,
@@ -130,7 +128,7 @@ class CommunityEvaluator(BaseEvaluator):
             add_issue_users(issue)
         for pr in self.repo_info.pr_list:
             add_pr_users(pr)
-        logger.info(f"Unique users in community: {unique_users}")
+        logger.debug(f"Unique users in community: {unique_users}")
         return list(unique_users)
 
     def _count_community_users(self) -> int:
@@ -160,7 +158,7 @@ class CommunityEvaluator(BaseEvaluator):
         # In GitHub, this typically includes repository owners, admins, and maintainers
         # We approximate this by counting the commits that are not part of any PR
         unique_contributors = set(self._list_direct_commit_users())
-        for pr in self.repo_info.pr_list:
+        for pr in self.repo_info.pr_without_comment_list:
             if pr.status == "merged":
                 unique_contributors.add(pr.merger)
 
@@ -184,7 +182,7 @@ class CommunityEvaluator(BaseEvaluator):
 
     def _list_reviewers(self) -> Set[User]:
         reviewers = set(self._list_maintainers())
-        for pr in self.repo_info.pr_list:
+        for pr in self.repo_info.pr_without_comment_list:
             if pr.reviewers:
                 for reviewer in pr.reviewers:
                     reviewers.add(reviewer)
@@ -197,8 +195,8 @@ class CommunityEvaluator(BaseEvaluator):
             list(filter(lambda user: user.type == "User", self._list_reviewers()))
         )
 
-    def _estimated_prs_to_become_maintainer(self) -> float:
-        activities = []
+    def _prs_needed_to_become_maintainer(self) -> Dict[int, int]:
+        activities = {}
         maintainers = self._list_maintainers()
         direct_commits = self._list_direct_commits()
 
@@ -216,7 +214,7 @@ class CommunityEvaluator(BaseEvaluator):
                 )
 
             in_merger_list = list(
-                filter(lambda pr: pr.merger == user, self.repo_info.pr_list)
+                filter(lambda pr: pr.merger == user, self.repo_info.pr_without_comment_list)
             )
             if in_merger_list != []:
                 granted_to_maintainer_date = min(
@@ -229,7 +227,7 @@ class CommunityEvaluator(BaseEvaluator):
                     pr.author == user or pr.merger == user or user in pr.reviewers
                 ) and datetime.fromisoformat(pr.created_at) < granted_to_maintainer_date
 
-            early_prs = list(filter(in_pr, self.repo_info.pr_list))
+            early_prs = list(filter(in_pr, self.repo_info.pr_without_comment_list))
             if early_prs == []:
                 logger.debug(
                     f"User {user.username} has no PRs before granted to maintainer"
@@ -238,15 +236,16 @@ class CommunityEvaluator(BaseEvaluator):
                 logger.debug(
                     f"User {user.username} contributed to {len(early_prs)} PRs in {granted_to_maintainer_date - datetime.fromisoformat(early_prs[-1].created_at)} before becoming a maintainer"
                 )
-            activities.append(len(early_prs))
-
+            if len(early_prs) not in activities:
+                activities[len(early_prs)]=0
+            activities[len(early_prs)]+=1
         logger.debug(
             f"Average time to become maintainer: {mean(activities) if len(activities) else -1.0} PRs"
         )
-        return mean(activities) if len(activities) else 0.0
+        return activities
 
-    def _estimated_prs_to_become_reviewer(self) -> float:
-        activities = []
+    def _prs_needed_to_become_reviewer(self) -> Dict[int,int]:
+        activities = {}
         reviewers = self._list_reviewers()
         direct_commits = self._list_direct_commits()
         for user in reviewers:
@@ -264,7 +263,7 @@ class CommunityEvaluator(BaseEvaluator):
             in_reviewer_list = list(
                 filter(
                     lambda pr: user in pr.reviewers or pr.merger == user,
-                    self.repo_info.pr_list,
+                    self.repo_info.pr_without_comment_list,
                 )
             )
             if in_reviewer_list != []:
@@ -278,7 +277,7 @@ class CommunityEvaluator(BaseEvaluator):
                     pr.author == user or pr.merger == user or user in pr.reviewers
                 ) and datetime.fromisoformat(pr.created_at) < granted_to_reviewer_date
 
-            early_prs = list(filter(in_pr, self.repo_info.pr_list))
+            early_prs = list(filter(in_pr, self.repo_info.pr_without_comment_list))
             if early_prs == []:
                 logger.debug(
                     f"User {user.username} has no PRs before granted to reviewer"
@@ -287,11 +286,13 @@ class CommunityEvaluator(BaseEvaluator):
                 logger.debug(
                     f"User {user.username} contributed to {len(early_prs)} PRs in {granted_to_reviewer_date - datetime.fromisoformat(early_prs[-1].created_at)} before becoming a reviewer"
                 )
-            activities.append(len(early_prs))
+            if len(early_prs) not in activities:
+                activities[len(early_prs)]=0
+            activities[len(early_prs)]+=1
         logger.debug(
             f"Average time to become reviewer: {mean(activities) if len(activities) else 0.0} PRs"
         )
-        return mean(activities) if len(activities) else 0.0
+        return activities
 
     def _analyze_required_reviewers(self) -> dict[int, float]:
         """Estimate minimum required reviewers for PR approval"""
@@ -381,7 +382,8 @@ class CommunityEvaluator(BaseEvaluator):
     async def _analyze_pr_consistency(self, prs: List[PullRequest]) -> List[PRInconsistencyAnalysis]:
         """Use LLM to analyze if PR description matches its likely implementation"""
 
-        logger.info(f"Start analysis for PR {list(map(lambda pr: pr.number, prs))}")
+        logger.info(f"Start analysis for {len(prs)} PRs")
+        logger.debug(f"PR list: {list(map(lambda pr: pr.number, prs))}")
         async with self._semaphore:  # Rate limiting
             class AnalysisResult(BaseModel):
                 results: List[PRInconsistencyAnalysis] = Field(

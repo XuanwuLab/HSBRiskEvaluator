@@ -55,8 +55,13 @@ class PayloadEvaluator(BaseEvaluator):
         )
     async def _analyze_binary_files(self) -> List[PayloadHiddenDetail]:
         logger.info(
-            f"Starting binary files {self.repo_info.binary_file_list} evaluation for repository: {self.repo_info.repo_id}"
+            f"Starting {len(self.repo_info.binary_file_list)} binary files evaluation for repository: {self.repo_info.repo_id}"
         )
+
+        logger.debug(
+            f"File list: {self.repo_info.binary_file_list}"
+        )
+        tasks = []
         tasks = []
         batch_size = self.settings.binary_file_batch_size
         file_list = self.repo_info.binary_file_list[:self.settings.binary_file_to_analyze_limit]
@@ -87,8 +92,12 @@ class PayloadEvaluator(BaseEvaluator):
     async def _check_binary_files(self, file_list) -> List[PayloadHiddenDetail]:
         """Check if repository allows binary files in test directories using LLM analysis"""
         logger.info(
-            f"Starting binary files {file_list} evaluation for repository: {self.repo_info.repo_id}"
+            f"Starting {len(file_list)} binary files evaluation for repository: {self.repo_info.repo_id}"
         )
+        logger.debug(
+            f"File list: {file_list}"
+        )
+
 
 
         try:
