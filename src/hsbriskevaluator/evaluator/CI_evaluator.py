@@ -20,7 +20,6 @@ from hsbriskevaluator.utils.prompt import (
 )
 import yaml
 
-llm_client = get_async_instructor_client()
 logger = logging.getLogger(__name__)
 
 
@@ -94,6 +93,7 @@ class CIEvaluator(BaseEvaluator):
                     f"Failed to analyze workflow {workflows[i].name}: {str(result)}"
                 )
                 # Create a fallback result for failed analysis
+                """
                 valid_results.append(
                     WorkflowAnalysis(
                         name=workflows[i].name,
@@ -107,6 +107,7 @@ class CIEvaluator(BaseEvaluator):
                         ),
                     )
                 )
+                """
             else:
                 valid_results.append(result)
 
@@ -148,7 +149,7 @@ class CIEvaluator(BaseEvaluator):
         missing_permissions = False
         if "permissions" not in workflow:
             missing_permissions = True
-        if workflow.get("permissions") == "write-all":
+        elif workflow.get("permissions") == "write-all":
             return True
         for jobs in workflow.get("jobs", {}).values():
             if "permissions" in jobs:
@@ -159,10 +160,10 @@ class CIEvaluator(BaseEvaluator):
                     return True
         return False
 
-    def _check_action_provider_and_pin(self, workflow: dict) -> bool:
+    def _check_action_provider_and_pin(self, workflow: dict) -> float:
         """Check if the workflow uses actions from untrusted providers or didn't pin the actions to a specific SHA"""
         if "jobs" not in workflow:
-            return False
+            return 0 
         for job in workflow["jobs"].values():
             if "steps" not in job:
                 continue
@@ -170,10 +171,10 @@ class CIEvaluator(BaseEvaluator):
                 if "uses" in step:
                     uses = step["uses"]
                     if "@" not in uses:
-                        return True  # Unpinned action
+                        return 1  # Unpinned action
                     action, version = uses.split("@", 1)
                     if not re.match("[a-f0-9]{40}", version):
-                        return True  # Not a SHA
+                        return 0.5 # Not a SHA
                     if action.startswith("actions/") or action.startswith("github/"):
                         continue
                     try:
@@ -182,13 +183,13 @@ class CIEvaluator(BaseEvaluator):
                             timeout=self.settings.http_request_timeout,
                         )
                         if "About badges in GitHub Marketplace" not in response.text:
-                            return True  # Untrusted action provider
+                            return 1 # Untrusted action provider
                     except Exception as e:
                         logger.warning(
                             f"Failed to check action provider for {action}: {str(e)}"
                         )
-                        return True  # Assume dangerous if we can't verify
-        return False
+                        return 1 # Assume dangerous if we can't verify
+        return 0 
 
     async def _check_dangerous_trigger(
         self, workflow: Workflow
@@ -196,14 +197,14 @@ class CIEvaluator(BaseEvaluator):
         """Use LLM to analyze if workflow has potential command injection vulnerabilities"""
         async with self._semaphore:  # Rate limiting
             try:
-                response = await llm_client.chat.completions.create(
-                    model=CI_WORKFLOW_ANALYSIS_MODEL_ID,
+                response = await call_llm_with_client(
+                    client = self.client,
+                    model_id=CI_WORKFLOW_ANALYSIS_MODEL_ID,
                     messages=[
                         {"role": "system", "content": CI_WORKFLOW_ANALYSIS_PROMPT},
                         {"role": "user", "content": f"Workflow file:{workflow.content}"}
                     ],
                     response_model=DangerousTriggerAnalysis,
-                    extra_body={"provider": {"require_parameters": True}},
                 )
                 return response
             except ValidationError as e:

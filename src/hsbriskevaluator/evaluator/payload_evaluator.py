@@ -18,7 +18,6 @@ from hsbriskevaluator.utils.prompt import (
     PAYLOAD_FILES_ANALYSIS_MODEL_ID,
 )
 
-llm_client = get_async_instructor_client()
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -36,9 +35,10 @@ class PayloadEvaluator(BaseEvaluator):
         if settings is None:
             settings = EvaluatorSettings()
         self.settings = settings
+        self.client = get_async_instructor_client()
 
     async def evaluate(self) -> PayloadHiddenEvalResult:
-        files_detail = await self._check_binary_test_files()
+        files_detail = await self._analyze_binary_files()
         binary_files_count=len(self.repo_info.binary_file_list)
         allows_binary_test_files = any(detail.is_test_file for detail in files_detail)
         allows_binary_document_files = any(detail.is_documentation for detail in files_detail)
@@ -53,10 +53,41 @@ class PayloadEvaluator(BaseEvaluator):
             binary_files_count=binary_files_count,
             details=files_detail
         )
-    async def _check_binary_test_files(self) -> List[PayloadHiddenDetail]:
+    async def _analyze_binary_files(self) -> List[PayloadHiddenDetail]:
+        logger.info(
+            f"Starting binary files {self.repo_info.binary_file_list} evaluation for repository: {self.repo_info.repo_id}"
+        )
+        tasks = []
+        batch_size = self.settings.binary_file_batch_size
+        file_list = self.repo_info.binary_file_list[:self.settings.binary_file_to_analyze_limit]
+
+        if(len(file_list)) ==0: 
+            return []
+        page_num = (len(file_list)-1)//batch_size+1
+        for page in range(page_num):
+            task = self._check_binary_files(file_list[batch_size*page:batch_size*(page+1)])
+            tasks.append(task)
+        if not tasks:
+            return []
+
+        # Execute all tasks concurrently with rate limiting
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        details = []
+        # Count inconsistent PRs
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    f"Failed to analyze {file_list[i*batch_size:(i+1)*batch_size]}: {str(result)}"
+                )
+            else:
+                details.extend(result)
+        return details
+
+    async def _check_binary_files(self, file_list) -> List[PayloadHiddenDetail]:
         """Check if repository allows binary files in test directories using LLM analysis"""
         logger.info(
-            f"Starting binary files evaluation for repository: {self.repo_info.repo_id}"
+            f"Starting binary files {file_list} evaluation for repository: {self.repo_info.repo_id}"
         )
 
 
@@ -64,20 +95,18 @@ class PayloadEvaluator(BaseEvaluator):
             class AnalysisResult(BaseModel):
                 results: List[PayloadHiddenDetail] = Field(
                     description="List of detected hidden payload details.",
-                    max_length=len(self.repo_info.binary_file_list),
-                    min_length=len(self.repo_info.binary_file_list)
+                    max_length=len(file_list),
+                    min_length=len(file_list)
                 )
-            response = await llm_client.chat.completions.create(
-                model=PAYLOAD_FILES_ANALYSIS_MODEL_ID,
+            response = await call_llm_with_client(
+                client=self.client,
+                model_id=PAYLOAD_FILES_ANALYSIS_MODEL_ID,
                 messages=[
                     {"role": "system", "content": PAYLOAD_FILES_ANALYSIS_PROMPT},
-                    {"role": "user", "content": f"Binary files: {self.repo_info.binary_file_list}"},
+                    {"role": "user", "content": f"Binary files: {file_list}"},
                 ],
                 response_model=AnalysisResult, 
-                extra_body={"provider": {"require_parameters": True}},
             )
-            print(len(self.repo_info.binary_file_list))
-            print(response.results)
             return response.results
         except ValidationError as e:
             logger.error(

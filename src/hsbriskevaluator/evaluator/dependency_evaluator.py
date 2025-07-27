@@ -31,8 +31,9 @@ class DependencyEvaluator(BaseEvaluator):
 
     def __init__(self, repo_info: RepoInfo, settings: EvaluatorSettings):
         super().__init__(repo_info)
+        if settings is None:
+            settings = EvaluatorSettings()
         self.settings = settings
-
         with open(self.settings.package_list_file) as f:
             self.packages = Packages.model_validate(yaml.safe_load(f))
 

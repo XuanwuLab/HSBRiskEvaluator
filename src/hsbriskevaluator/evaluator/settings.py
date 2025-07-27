@@ -26,9 +26,13 @@ class EvaluatorSettings(BaseSettings):
     max_pr_participants_for_normalization: float = 3.0
     issue_activity_weight: float = 0.3
     pr_activity_weight: float = 0.7
-   
+  
+    # Dependency Package List File
     package_list_file: Path = get_data_dir() / "debian.yaml"
-    
+
+    # Payload Evaluation Settings
+    binary_file_to_analyze_limit: int=300
+    binary_file_batch_size: int=30
     # HTTP Timeouts
     http_request_timeout: int = 10
     
