@@ -20,7 +20,6 @@ from hsbriskevaluator.utils.prompt import (
 )
 import yaml
 
-llm_client = get_async_instructor_client()
 logger = logging.getLogger(__name__)
 
 
@@ -198,14 +197,14 @@ class CIEvaluator(BaseEvaluator):
         """Use LLM to analyze if workflow has potential command injection vulnerabilities"""
         async with self._semaphore:  # Rate limiting
             try:
-                response = await llm_client.chat.completions.create(
-                    model=CI_WORKFLOW_ANALYSIS_MODEL_ID,
+                response = await call_llm_with_client(
+                    client = self.client,
+                    model_id=CI_WORKFLOW_ANALYSIS_MODEL_ID,
                     messages=[
                         {"role": "system", "content": CI_WORKFLOW_ANALYSIS_PROMPT},
                         {"role": "user", "content": f"Workflow file:{workflow.content}"}
                     ],
                     response_model=DangerousTriggerAnalysis,
-                    extra_body={"provider": {"require_parameters": True}},
                 )
                 return response
             except ValidationError as e:

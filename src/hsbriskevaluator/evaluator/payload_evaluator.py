@@ -18,7 +18,6 @@ from hsbriskevaluator.utils.prompt import (
     PAYLOAD_FILES_ANALYSIS_MODEL_ID,
 )
 
-llm_client = get_async_instructor_client()
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -36,6 +35,7 @@ class PayloadEvaluator(BaseEvaluator):
         if settings is None:
             settings = EvaluatorSettings()
         self.settings = settings
+        self.client = get_async_instructor_client()
 
     async def evaluate(self) -> PayloadHiddenEvalResult:
         files_detail = await self._analyze_binary_files()
@@ -98,14 +98,14 @@ class PayloadEvaluator(BaseEvaluator):
                     max_length=len(file_list),
                     min_length=len(file_list)
                 )
-            response = await llm_client.chat.completions.create(
-                model=PAYLOAD_FILES_ANALYSIS_MODEL_ID,
+            response = await call_llm_with_client(
+                client=self.client,
+                model_id=PAYLOAD_FILES_ANALYSIS_MODEL_ID,
                 messages=[
                     {"role": "system", "content": PAYLOAD_FILES_ANALYSIS_PROMPT},
                     {"role": "user", "content": f"Binary files: {file_list}"},
                 ],
                 response_model=AnalysisResult, 
-                extra_body={"provider": {"require_parameters": True}},
             )
             return response.results
         except ValidationError as e:
