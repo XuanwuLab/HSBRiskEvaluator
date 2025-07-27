@@ -39,6 +39,7 @@ source .venv/bin/activate
 ```
 
 **System Requirements:**
+
 - Debian-based Linux distribution (Ubuntu, Debian, Mint, etc.)
 - Python 3.12 or higher
 - APT package manager (for package analysis features)
@@ -47,7 +48,7 @@ source .venv/bin/activate
 
 ### Environment Variables
 
-- `OPENAI_API_KEY` - Required for LLM-based upstream repository discovery  
+- `OPENAI_API_KEY` - Required for LLM-based upstream repository discovery
 - `GITHUB_TOKEN` - Primary GitHub token for API access
 
 ### Collector Settings
@@ -61,7 +62,7 @@ settings = CollectorSettings(github_tokens=["token1", "token2"])
 repo_info = await collect_all(settings=settings, ...)
 ```
 
-### Evaluator Settings  
+### Evaluator Settings
 
 Evaluator configuration parameters are defined in [`src/hsbriskevaluator/evaluator/settings.py`](src/hsbriskevaluator/evaluator/settings.py). Configure risk analysis thresholds and weights as needed.
 
@@ -71,7 +72,6 @@ from hsbriskevaluator.evaluator.settings import EvaluatorSettings
 evaluator_settings = EvaluatorSettings()
 evaluator = HSBRiskEvaluator(repo_info, settings=evaluator_settings)
 ```
-
 
 ## Quick Start
 
@@ -160,7 +160,7 @@ Fetches comprehensive repository information from GitHub for packages with upstr
 
 #### GitHub Token Management
 
-The [`scripts/fetch_repo_infos.py`](scripts/fetch_repo_infos.py)t  script requires GitHub API access and supports multiple tokens for improved rate limiting:
+The [`scripts/fetch_repo_infos.py`](scripts/fetch_repo_infos.py)t script requires GitHub API access and supports multiple tokens for improved rate limiting:
 
 1. **Create `.github_tokens` file** in the project root with one token per line
 2. **Generate GitHub tokens** with repository read permissions
@@ -168,6 +168,7 @@ The [`scripts/fetch_repo_infos.py`](scripts/fetch_repo_infos.py)t  script requir
 4. **Rate limiting is handled automatically** to maximize throughput
 
 Example `.github_tokens` file:
+
 ```text
 ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ghp_yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
@@ -175,6 +176,7 @@ ghp_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
 ```
 
 **Benefits of multiple tokens:**
+
 - Higher API rate limits (5,000 requests/hour per token)
 - Reduced processing time for large package sets
 - Automatic failover if a token becomes rate limited
@@ -185,7 +187,7 @@ ghp_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
 # 1. Generate package list
 python scripts/get_priority_packages.py
 
-# 2. Generate package information 
+# 2. Generate package information
 python scripts/generate_packages_from_file.py debian_priority_packages.txt -d data/debian
 
 # 3. Fetch upstream repository URLs
@@ -200,7 +202,6 @@ python scripts/fetch_repo_infos.py -d data/debian
 
 All scripts support the `--directory` parameter to specify custom input/output directories and include comprehensive help documentation accessible via `--help`.
 
-
 ## Evaluation Analysis
 
 Each repository evaluation produces detailed analysis across these core aspects:
@@ -213,15 +214,15 @@ class CommunityEvalResult(BaseModel):
     watchers_count: int                     # Number of watchers of the repository
     forks_count: int                        # Number of forks of the repository
     community_users_count: int              # Number of users actively participating in the community
-    direct_commits: int                     # Number of direct commits to the main branch
+    direct_commits_ratio: float             # Ratio of direct commits in the main branch
     direct_commit_users_count: int          # Number of users with direct commit access
     maintainers_count: int                  # Number of maintainers with authority to merge pull requests or directly commit code
     pr_reviewers_count: int                # Number of active PR reviewers
-    required_reviewers_distribution: Dict[int, float] # Distribution of reviewers required to approve a PR before merge, -1 means direct commit
+    required_reviewers_distribution: Dict[int, float] # Distribution of reviewers required to approve a PR before merge
     estimated_prs_to_become_maintainer: float # Estimated number of PRs needed to become a maintainer
     estimated_prs_to_become_reviewer: float # Estimated number of PRs needed to become a reviewer
-    prs_merged_without_discussion_count: int  # PRs merged without discussion
-    prs_with_inconsistent_description_count: int  # PRs with mismatched descriptions
+    prs_merged_without_discussion_ratio: float  # Ratio of PRs merged without discussion
+    prs_with_inconsistent_description_ratio: float # Ratio of PRs with mismatched descriptions
     avg_participants_per_issue: float      # Average participants in issues
     avg_participants_per_pr: float         # Average participants in PRs
     community_activity_score: float         # Overall community engagement score (0.0-1.0) (just ignore it, do not have a good formula yet)
@@ -238,33 +239,23 @@ class CommunityEvalResult(BaseModel):
 
 ```python
 class PayloadHiddenEvalResult(BaseModel):
-    allows_binary_test_files: bool         # Whether binary files are allowed in tests
-    allows_binary_document_files: bool     # Whether document binaries are permitted
+    allows_binary_test_files: bool         # Whether binary files are allowed as tests
+    allows_binary_document_files: bool     # Whether binary files are allowed as document files
+    allows_binary_code_files: bool         # Whether binary files are allowed as code files
+    allows_binary_asset_files: bool        # Whether binary files are allowed as assets
+    allows_other_binary_files: bool        # Whether binary files are allowed as other files
     binary_files_count: int                # Total binary files detected
     details: list[PayloadHiddenDetail]     # Details of the binary files
 ```
-
-**Key Indicators:**
-
-- Binary files in tests can hide malicious executables
-- Document binaries may contain embedded malware
-- Trigger features could enable payload execution
-- Suspicious file locations warrant investigation
 
 ### 3. Dependency Impact Analysis
 
 ```python
 class DependencyEvalResult(BaseModel):
-    is_os_default_dependency: bool         # Included in OS default installations
-    is_mainstream_os_dependency: bool      # Required by popular OS components
-    is_cloud_product_dependency: bool      # Used by cloud infrastructure
+    is_important_package: bool # Whether it is a important package itself
+    is_important_packages_dependency: bool # Whether it is a dependency of some important packages
+    details: list[DependencyDetail] # The list of important packages that depends this package
 ```
-
-**Key Indicators:**
-
-- OS-level dependencies have widespread impact
-- Mainstream dependencies increase attack surface
-- Cloud dependencies affect infrastructure security
 
 ### 4. CI Analysis
 
@@ -273,7 +264,7 @@ class WorkflowAnalysis(BaseModel):
     name: str
     path: str
     dangerous_token_permission: bool # Whether this workflow have dangerous token permissions
-    dangerous_action_provider_or_pin: bool # Whether this workflow have dangerous action provider or pinning
+    dangerous_action_provider_or_pin: float # Whether this workflow have dangerous action provider or pinning, from 0.0(safe) to 1.0(very dangerous), if the only problem is not fixed to SHA, it's 0.5
     dangerous_trigger: DangerousTriggerAnalysis # Analysis for dangerous triggers in workflow
 
 class CIEvalResult(BaseModel):
@@ -301,33 +292,55 @@ diff_result=comparator.clone_and_compare("xz-utils")
 ```json
 {
   "community_quality": {
-    "stargazers_count": 792,
-    "watchers_count": 792,
-    "forks_count": 162,
-    "community_users_count": 60,
-    "direct_commits": 271,
-    "direct_commit_users_count": 8,
-    "maintainers_count": 8,
-    "pr_reviewers_count": 11,
-    "required_reviewers_distribution": {},
-    "estimated_prs_to_become_maintainer": 1.0,
-    "estimated_prs_to_become_reviewer": 0.7272727272727273,
-    "prs_merged_without_discussion_count": 0,
-    "prs_with_inconsistent_description_count": 0,
-    "avg_participants_per_issue": 2.2413793103448274,
-    "avg_participants_per_pr": 2.111111111111111,
-    "community_activity_score": 0.627
+    "stargazers_count": 797,
+    "watchers_count": 797,
+    "forks_count": 164,
+    "community_users_count": 238,
+    "direct_commits_ratio": 0.979,
+    "direct_commit_users_count": 20,
+    "maintainers_count": 20,
+    "pr_reviewers_count": 25,
+    "required_reviewers_distribution": {
+      "0": 0.9705882352941176,
+      "1": 0.029411764705882353
+    },
+    "estimated_prs_to_become_maintainer": 1.3,
+    "estimated_prs_to_become_reviewer": 0.96,
+    "prs_merged_without_discussion_ratio": 0.5294117647058824,
+    "prs_with_inconsistent_description_ratio": 0.0,
+    "avg_participants_per_issue": 3.4875,
+    "avg_participants_per_pr": 1.801980198019802,
+    "community_activity_score": 0.63
   },
   "payload_hidden_difficulty": {
     "allows_binary_test_files": true,
     "allows_binary_document_files": false,
-    "binary_files_count": 95
+    "allows_binary_code_files": false,
+    "allows_binary_assets_files": false,
+    "allows_other_binary_files": false,
+    "binary_files_count": 95,
+    "details": [
+      {
+        "file_path": "tests/files/good-0-empty.xz",
+        "reason": "File is under 'tests/files', indicating it is a binary fixture or resource used as part of automated tests.",
+        "file_type": "test_resource",
+        "is_test_file": true,
+        "is_documentation": false,
+        "is_code": false,
+        "is_asset": false
+      }
+    ]
   },
   "dependency": {
-    "is_os_default_dependency": true,
-    "is_mainstream_os_dependency": true,
-    "is_cloud_product_dependency": false,
-    "details": null
+    "is_important_packages_dependency": false,
+    "is_important_package": true,
+    "details": [
+      {
+        "name": "xz-utils",
+        "labels": ["priority:standard"],
+        "type": "Self"
+      }
+    ]
   },
   "ci": {
     "has_dependabot": false,
@@ -336,11 +349,11 @@ diff_result=comparator.clone_and_compare("xz-utils")
         "name": "CI",
         "path": ".github/workflows/ci.yml",
         "dangerous_token_permission": false,
-        "dangerous_action_provider_or_pin": true,
+        "dangerous_action_provider_or_pin": 0.5,
         "dangerous_trigger": {
           "is_dangerous": false,
-          "danger_level": 0.2,
-          "reason": "The workflow uses safe triggers (push, pull_request, workflow_dispatch), has restricted permissions ({}), and doesn't execute arbitrary user input. The only slight risk comes from running apt-get and brew commands, but these use fixed package names rather than variables. Build parameters are passed through a controlled script rather than directly executing user input."
+          "danger_level": 0.1,
+          "reason": "The workflow uses only 'push', 'pull_request', and 'workflow_dispatch' triggers (avoiding highly dangerous triggers like 'pull_request_target'). There is no evidence of direct unsanitized user input used in shell commands or inline scripts. Variables from the matrix are controlled internally. No secrets or tokens are exposed. There is only minimal risk from normal use of matrix inputs in build commands, so security danger is very low."
         }
       }
     ]
