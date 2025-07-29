@@ -299,17 +299,17 @@ class CommunityEvaluator(BaseEvaluator):
         # Analyze merged PRs to estimate review requirements
         # -1 means direct commits to main branch
 
-        if not self.repo_info.pr_list:
+        if not self.repo_info.pr_without_comment_list:
             return {}
 
-        merged_prs = [pr for pr in self.repo_info.pr_list if pr.status == "merged"]
+        merged_prs = [pr for pr in self.repo_info.pr_without_comment_list if pr.status == "merged"]
 
         if not merged_prs:
             return {}
 
         prs_with_approvers = {}
         for pr in merged_prs:
-            approvers_count = len(pr.approvers)
+            approvers_count = len(set(pr.approvers))
             if approvers_count not in prs_with_approvers.keys():
                 prs_with_approvers[approvers_count] = 0
             prs_with_approvers[approvers_count] += 1

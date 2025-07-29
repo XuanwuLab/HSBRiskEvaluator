@@ -125,9 +125,8 @@ class CIEvaluator(BaseEvaluator):
                 name=workflow.name,
                 path=workflow.path,
                 dangerous_token_permission=self._check_token_permissions(workflow_dict),
-                dangerous_action_provider_or_pin=self._check_action_provider_and_pin(
-                    workflow_dict
-                ),
+                dangerous_action_provider=self._check_action_provider(workflow_dict),
+                dangerous_action_pin=self._check_action_pin(workflow_dict),
                 dangerous_trigger=dangerous_trigger,
             )
         except Exception as e:
@@ -136,7 +135,8 @@ class CIEvaluator(BaseEvaluator):
                 name=workflow.name,
                 path=workflow.path,
                 dangerous_token_permission=False,
-                dangerous_action_provider_or_pin=False,
+                dangerous_action_provider=False,
+                dangerous_action_pin=False,
                 dangerous_trigger=DangerousTriggerAnalysis(
                     is_dangerous=False,
                     danger_level=0.0,
@@ -160,21 +160,21 @@ class CIEvaluator(BaseEvaluator):
                     return True
         return False
 
-    def _check_action_provider_and_pin(self, workflow: dict) -> float:
+    def _check_action_provider(self, workflow: dict) -> bool:
         """Check if the workflow uses actions from untrusted providers or didn't pin the actions to a specific SHA"""
         if "jobs" not in workflow:
-            return 0 
+            return False 
         for job in workflow["jobs"].values():
             if "steps" not in job:
                 continue
             for step in job["steps"]:
                 if "uses" in step:
                     uses = step["uses"]
+
                     if "@" not in uses:
-                        return 1  # Unpinned action
-                    action, version = uses.split("@", 1)
-                    if not re.match("[a-f0-9]{40}", version):
-                        return 0.5 # Not a SHA
+                        action = uses
+                    else:
+                        action, _= uses.split("@", 1)
                     if action.startswith("actions/") or action.startswith("github/"):
                         continue
                     try:
@@ -183,14 +183,30 @@ class CIEvaluator(BaseEvaluator):
                             timeout=self.settings.http_request_timeout,
                         )
                         if "About badges in GitHub Marketplace" not in response.text:
-                            return 1 # Untrusted action provider
+                            return True # Untrusted action provider
                     except Exception as e:
                         logger.warning(
                             f"Failed to check action provider for {action}: {str(e)}"
                         )
-                        return 1 # Assume dangerous if we can't verify
-        return 0 
+                        return True # Assume dangerous if we can't verify
+        return False
 
+    def _check_action_pin(self, workflow: dict) -> bool:
+        """Check if the workflow uses actions from untrusted providers or didn't pin the actions to a specific SHA"""
+        if "jobs" not in workflow:
+            return False 
+        for job in workflow["jobs"].values():
+            if "steps" not in job:
+                continue
+            for step in job["steps"]:
+                if "uses" in step:
+                    uses = step["uses"]
+                    if "@" not in uses:
+                        return True  # Unpinned action
+                    _, version = uses.split("@", 1)
+                    if not re.match("[a-f0-9]{40}", version):
+                        return True
+        return False
     async def _check_dangerous_trigger(
         self, workflow: Workflow
     ) -> DangerousTriggerAnalysis:

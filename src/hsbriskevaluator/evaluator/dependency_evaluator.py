@@ -29,7 +29,7 @@ class Packages(BaseModel):
 class DependencyEvaluator(BaseEvaluator):
     """Evaluator for Software Supply Chain Dependency Location metrics"""
 
-    def __init__(self, repo_info: RepoInfo, settings: EvaluatorSettings):
+    def __init__(self, repo_info: RepoInfo, settings: Optional[EvaluatorSettings] = None):
         super().__init__(repo_info)
         if settings is None:
             settings = EvaluatorSettings()

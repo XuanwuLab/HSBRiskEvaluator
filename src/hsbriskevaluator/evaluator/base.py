@@ -125,11 +125,11 @@ class WorkflowAnalysis(BaseModel):
     dangerous_token_permission: bool = Field(
         description="Danger level for token permissions in workflow"
     )
-    dangerous_action_provider_or_pin: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Danger level for action provider and pinning in workflow, from 0.0(safe) to 1.0(very dangerous)"
-
+    dangerous_action_provider: bool= Field(
+        description="Danger level for action provider in workflow"
+    )
+    dangerous_action_pin: bool= Field(
+        description="Danger level for action pins in workflow"
     )
     dangerous_trigger: DangerousTriggerAnalysis = Field(
         description="Analysis for dangerous triggers in workflow"
