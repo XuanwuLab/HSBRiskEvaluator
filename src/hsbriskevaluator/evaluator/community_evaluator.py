@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Set, List, Optional
 from statistics import mean, geometric_mean
@@ -138,9 +139,19 @@ class CommunityEvaluator(BaseEvaluator):
         )
 
     def _list_direct_commits(self) -> list[Commit]:
+        def is_direct_commit(commit: Commit) -> bool:
+            if commit.pull_numbers:
+                return False
+            if f"{self.repo_info.basic_info.url}/pull/" in commit.message:
+                return False
+            pattern = r'.*?(close|merge).*?#\d+.*'
+            for line in commit.message.splitlines():
+                if re.search(pattern, line, re.IGNORECASE):
+                    return False 
+            return True
         return list(
             filter(
-                lambda commit: len(commit.pull_numbers) == 0, self.repo_info.commit_list
+                is_direct_commit, self.repo_info.commit_list
             )
         )
 
@@ -302,19 +313,19 @@ class CommunityEvaluator(BaseEvaluator):
         if not self.repo_info.pr_without_comment_list:
             return {}
 
-        merged_prs = [pr for pr in self.repo_info.pr_without_comment_list if pr.status == "merged"]
+        prs = [pr for pr in self.repo_info.pr_without_comment_list if pr.status == "merged" or len(pr.approvers)>0]
 
-        if not merged_prs:
+        if not prs:
             return {}
 
         prs_with_approvers = {}
-        for pr in merged_prs:
+        for pr in prs:
             approvers_count = len(set(pr.approvers))
             if approvers_count not in prs_with_approvers.keys():
                 prs_with_approvers[approvers_count] = 0
             prs_with_approvers[approvers_count] += 1
         for key in prs_with_approvers.keys():
-            prs_with_approvers[key] /= len(merged_prs)
+            prs_with_approvers[key] /= len(prs)
         return prs_with_approvers
 
     def _count_prs_without_discussion_ratio(self) -> float:
