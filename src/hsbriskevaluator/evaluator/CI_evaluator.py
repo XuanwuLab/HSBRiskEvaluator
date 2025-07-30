@@ -161,7 +161,7 @@ class CIEvaluator(BaseEvaluator):
         return False
 
     def _check_action_provider(self, workflow: dict) -> bool:
-        """Check if the workflow uses actions from untrusted providers or didn't pin the actions to a specific SHA"""
+        """Check if the workflow uses actions from untrusted providers"""
         if "jobs" not in workflow:
             return False 
         for job in workflow["jobs"].values():
@@ -192,7 +192,7 @@ class CIEvaluator(BaseEvaluator):
         return False
 
     def _check_action_pin(self, workflow: dict) -> bool:
-        """Check if the workflow uses actions from untrusted providers or didn't pin the actions to a specific SHA"""
+        """Check if the workflow didn't pin the actions to a specific SHA"""
         if "jobs" not in workflow:
             return False 
         for job in workflow["jobs"].values():
@@ -202,8 +202,13 @@ class CIEvaluator(BaseEvaluator):
                 if "uses" in step:
                     uses = step["uses"]
                     if "@" not in uses:
-                        return True  # Unpinned action
-                    _, version = uses.split("@", 1)
+                        action, version = uses, None
+                    else:
+                        action, version= uses.split("@", 1)
+                    if action.startswith("actions/") or action.startswith("github/"):
+                        continue
+                    if version is None:
+                        return True
                     if not re.match("[a-f0-9]{40}", version):
                         return True
         return False
