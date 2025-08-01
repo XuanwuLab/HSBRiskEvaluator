@@ -60,10 +60,10 @@ class CommunityEvaluator(BaseEvaluator):
             direct_commit_users = self._count_direct_commit_users()
             community_users = self._count_community_users()
             maintainers = self._count_maintainers()
-            pr_reviewers = self._count_pr_reviewers()
-            required_reviewers = self._analyze_required_reviewers()
+            approvers= self._count_approvers()
+            required_approvals= self._analyze_required_approvals()
             prs_needed_to_become_maintainer = self._prs_needed_to_become_maintainer()
-            prs_needed_to_become_reviewer = self._prs_needed_to_become_reviewer()
+            prs_needed_to_become_approver = self._prs_needed_to_become_approver()
 
             # Analyze PR and issue discussions
             prs_without_discussion_ratio = self._count_prs_without_discussion_ratio()
@@ -88,10 +88,10 @@ class CommunityEvaluator(BaseEvaluator):
                 direct_commits_ratio=direct_commits_ratio,
                 direct_commit_users_count=direct_commit_users,
                 maintainers_count=maintainers,
-                pr_reviewers_count=pr_reviewers,
-                required_reviewers_distribution=required_reviewers,
+                approvers_count=approvers,
+                required_approvals_distribution=required_approvals,
                 prs_needed_to_become_maintainer=prs_needed_to_become_maintainer,
-                prs_needed_to_become_reviewer=prs_needed_to_become_reviewer,
+                prs_needed_to_become_approver=prs_needed_to_become_approver,
                 prs_merged_without_discussion_ratio=prs_without_discussion_ratio,
                 prs_with_inconsistent_description_ratio=prs_with_inconsistent_desc_ratio,
                 avg_participants_per_issue=avg_participants_per_issue,
@@ -191,19 +191,21 @@ class CommunityEvaluator(BaseEvaluator):
             list(filter(lambda user: user.type == "User", self._list_maintainers()))
         )
 
-    def _list_reviewers(self) -> Set[User]:
-        reviewers = set(self._list_maintainers())
+    def _list_approvers(self) -> Set[User]:
+        approvers = set(self._list_maintainers())
         for pr in self.repo_info.pr_without_comment_list:
             if pr.reviewers:
-                for reviewer in pr.reviewers:
-                    reviewers.add(reviewer)
-        logger.debug(f"PR reviewers: {reviewers}")
-        return reviewers
-
-    def _count_pr_reviewers(self) -> int:
+                for review in pr.reviews:
+                    if review.state in ("APPROVED", "CHANGES_REQUESTED","DISMISSED"):
+                        approvers.add(review.user)
+                    elif review.state != "COMMENTED":
+                        logger.warning(f"STATE: {review.state}")
+        logger.debug(f"Approvers: {approvers}")
+        return approvers 
+    def _count_approvers(self) -> int:
         """Count users with PR review authority"""
         return len(
-            list(filter(lambda user: user.type == "User", self._list_reviewers()))
+            list(filter(lambda user: user.type == "User", self._list_approvers()))
         )
 
     def _prs_needed_to_become_maintainer(self) -> Dict[int, int]:
@@ -255,58 +257,57 @@ class CommunityEvaluator(BaseEvaluator):
         )
         return activities
 
-    def _prs_needed_to_become_reviewer(self) -> Dict[int,int]:
+    def _prs_needed_to_become_approver(self) -> Dict[int,int]:
         activities = {}
-        reviewers = self._list_reviewers()
+        approvers = self._list_approvers()
         direct_commits = self._list_direct_commits()
-        for user in reviewers:
+        for user in approvers:
             if user.type != "User":
                 continue
-            granted_to_reviewer_date = datetime.now(timezone.utc)
+            granted_to_approver_date = datetime.now(timezone.utc)
             direct_commits = list(
                 filter(lambda commit: commit.author == user, direct_commits)
             )
             if len(direct_commits):
-                granted_to_reviewer_date = datetime.fromisoformat(
+                granted_to_approver_date = datetime.fromisoformat(
                     direct_commits[-1].timestamp
                 )
-
-            in_reviewer_list = list(
+            in_approver_list = list(
                 filter(
-                    lambda pr: user in pr.reviewers or pr.merger == user,
+                    lambda pr: any(review.user == user and review.state in ("APPROVED", "CHANGES_REQUESTED","DISMISSED") for review in pr.reviews) or pr.merger == user,
                     self.repo_info.pr_without_comment_list,
                 )
             )
-            if in_reviewer_list != []:
-                granted_to_reviewer_date = min(
-                    granted_to_reviewer_date,
-                    datetime.fromisoformat(in_reviewer_list[-1].created_at),
+            if in_approver_list != []:
+                granted_to_approver_date = min(
+                    granted_to_approver_date,
+                    datetime.fromisoformat(in_approver_list[-1].created_at),
                 )
 
             def in_pr(pr: PullRequest) -> bool:
                 return (
                     pr.author == user or pr.merger == user or user in pr.reviewers
-                ) and datetime.fromisoformat(pr.created_at) < granted_to_reviewer_date
+                ) and datetime.fromisoformat(pr.created_at) < granted_to_approver_date
 
             early_prs = list(filter(in_pr, self.repo_info.pr_without_comment_list))
             if early_prs == []:
                 logger.debug(
-                    f"User {user.username} has no PRs before granted to reviewer"
+                    f"User {user.username} has no PRs before granted to approver"
                 )
             else:
                 logger.debug(
-                    f"User {user.username} contributed to {len(early_prs)} PRs in {granted_to_reviewer_date - datetime.fromisoformat(early_prs[-1].created_at)} before becoming a reviewer"
+                    f"User {user.username} contributed to {len(early_prs)} PRs in {granted_to_approver_date - datetime.fromisoformat(early_prs[-1].created_at)} before becoming a approver"
                 )
             if len(early_prs) not in activities:
                 activities[len(early_prs)]=0
             activities[len(early_prs)]+=1
         logger.debug(
-            f"Average time to become reviewer: {mean(activities) if len(activities) else 0.0} PRs"
+            f"Average time to become approver: {mean(activities) if len(activities) else 0.0} PRs"
         )
         return activities
 
-    def _analyze_required_reviewers(self) -> dict[int, float]:
-        """Estimate minimum required reviewers for PR approval"""
+    def _analyze_required_approvals(self) -> dict[int, float]:
+        """Estimate minimum required approvals for PR to be merged"""
         # Analyze merged PRs to estimate review requirements
         # -1 means direct commits to main branch
 

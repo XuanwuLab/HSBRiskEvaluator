@@ -22,17 +22,17 @@ class CommunityEvalResult(BaseModel):
     maintainers_count: int = Field(
         description="Number of maintainers with authority to merge pull requests or directly commit code"
     )
-    pr_reviewers_count: int = Field(
+    approvers_count: int = Field(
         description="Number of people with authority to review pull requests"
     )
-    required_reviewers_distribution: Dict[int, float] = Field(
-        description="Distribution of reviewers required to approve a PR before merge"
+    required_approvals_distribution: Dict[int, float] = Field(
+        description="Distribution of approvals needed to merge the PR"
     )
     prs_needed_to_become_maintainer: Dict[int, int]= Field(
         description="Distribution of number of PRs needed to become a maintainer"
     )
-    prs_needed_to_become_reviewer: Dict[int, int] = Field(
-        description="Distribution of number of PRs needed to become a reviewer"
+    prs_needed_to_become_approver: Dict[int, int] = Field(
+        description="Distribution of number of PRs needed to become a approver"
     )
     prs_merged_without_discussion_ratio: float = Field(
         description="Ratio of pull requests merged without discussion"
