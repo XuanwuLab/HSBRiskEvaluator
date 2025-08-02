@@ -86,7 +86,7 @@ class GitHubRepoCollector:
                     basic_info.clone_url,
                     self.executor,
                 )
-                local_repo_path = data_dir / local_repo_dir
+                local_repo_path = data_dir / "repo" / local_repo_dir
 
                 # Execute all collection tasks concurrently
                 logger.info(f"Starting concurrent collection for {repo_name}")
