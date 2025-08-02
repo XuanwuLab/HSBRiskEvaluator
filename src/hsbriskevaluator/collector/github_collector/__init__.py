@@ -56,7 +56,7 @@ class GitHubRepoCollector:
         self,
         repo_name: str,
         pkt_type: str = "debian",
-        pkt_name: str = "",
+        pkt_name: str | list[str] = "",
     ) -> RepoInfo:
         """
         Collect complete repository information and return as RepoInfo model
@@ -124,7 +124,7 @@ class GitHubRepoCollector:
                 # Create RepoInfo model
                 repo_info = RepoInfo(
                     pkt_type=pkt_type,  # type: ignore
-                    pkt_name=pkt_name or repo_name.split("/")[-1],
+                    pkt_name=pkt_name or [repo_name.split("/")[-1]],
                     repo_id=repo_name.replace("/", "-"),
                     basic_info=basic_info,
                     commit_list=commits,

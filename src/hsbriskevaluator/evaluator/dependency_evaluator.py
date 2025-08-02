@@ -46,21 +46,49 @@ class DependencyEvaluator(BaseEvaluator):
             is_important_package = False
             is_important_packages_dependency = False
             details = []
+            self_count = {}
+            dependency_count = {}
+            if isinstance(self.repo_info.pkt_name, str):
+                pkt_name_list = [self.repo_info.pkt_name]
+            else:
+                pkt_name_list = self.repo_info.pkt_name
             for pkg in self.packages.packages:
                 pkg_name = pkg.package
-                if pkg_name == self.repo_info.pkt_name:
+                if pkg_name in pkt_name_list:
                     is_important_package = True
                     details.append(DependencyDetail(name=pkg_name, labels=pkg.labels, type='Self'))
-                else:
-                    for dependency in pkg.depends:
-                        if dependency.name == self.repo_info.pkt_name:
-                            is_important_packages_dependency = True
-                            details.append(DependencyDetail(name=pkg_name, labels=pkg.labels, type=dependency.type))
-                            break
+                    for label in pkg.labels:
+                        self_count[label] = self_count.get(label, 0) + 1
+                for dependency in pkg.depends:
+                    if dependency.name in pkt_name_list:
+                        is_important_packages_dependency = True
+                        details.append(DependencyDetail(name=pkg_name, labels=pkg.labels, type=dependency.type))
+                        for label in pkg.labels:
+                            dependency_count[label] = dependency_count.get(label, 0) + 1
+                        break
+
+            labels = ["priority:required", "priority:important", "priority:standard", "essential"]
+
+            self_priority_required_count = self_count.get('priority:required', 0)
+            self_priority_important_count = self_count.get('priority:important', 0)
+            self_priority_standard_count = self_count.get('priority:standard', 0)
+            self_essential_count = self_count.get('essential', 0)
+
+            dependency_priority_required_count = dependency_count.get('priority:required', 0)
+            dependency_priority_important_count = dependency_count.get('priority:important', 0)
+            dependency_priority_standard_count = dependency_count.get('priority:standard', 0)
+            dependency_essential_count = dependency_count.get('essential', 0)
+
             return DependencyEvalResult(
-                is_important_packages_dependency=is_important_packages_dependency,
-                is_important_package=is_important_package,
-                details=details,
+                self_priority_required_count=self_priority_required_count,
+                self_priority_important_count=self_priority_important_count,
+                self_priority_standard_count=self_priority_standard_count,
+                self_essential_count=self_essential_count,
+                dependency_priority_required_count=dependency_priority_required_count,
+                dependency_priority_important_count=dependency_priority_important_count,
+                dependency_priority_standard_count=dependency_priority_standard_count,
+                dependency_essential_count=dependency_essential_count,
+                # details = details
                 )
         except Exception as e:
             logger.error(f"Error during dependency evaluation: {str(e)}")

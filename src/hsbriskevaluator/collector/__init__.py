@@ -56,6 +56,4 @@ async def collect_all(
     repo_info = await collect_github_repo_info(
         repo_name=repo_name, pkt_type=pkt_type, pkt_name=pkt_name, settings=settings
     )
-    if pkt_type == "debian":
-        repo_info = await enrich_repo_with_dependencies(repo_info, settings=settings)
     return repo_info

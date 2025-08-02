@@ -746,12 +746,17 @@ class GitHubDataCollector:
                             )
                         except FileNotFoundError:
                             file_read_errors += 1
-                            content = "Not from a file in repo"
                             logger.warning(f"Workflow file not found locally: {file_path}")
+                            content = f"Error: file not found"
+                            if workflow.path.startswith(".github/workflows/"):
+                                continue
+
                         except Exception as e:
                             file_read_errors += 1
-                            content = f"Error reading file: {e}"
                             logger.warning(f"Error reading workflow file {file_path}: {e}")
+                            content = f"Error reading file: {e}"
+                            if workflow.path.startswith(".github/workflows/"):
+                                continue
 
                         try:
                             workflow_obj = Workflow(

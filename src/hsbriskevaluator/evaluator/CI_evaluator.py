@@ -60,9 +60,37 @@ class CIEvaluator(BaseEvaluator):
                 workflow_analysis = await self._analyze_workflows_concurrently(
                     github_workflows
                 )
-
+            if len(workflow_analysis)>0: 
+                dangerous_token_permission = 0
+                dangerous_action_provider = 0
+                dangerous_action_pin = 0
+                dangerous_trigger = 0
+                for wf in workflow_analysis:
+                    if wf.dangerous_token_permission:
+                        dangerous_token_permission += 1
+                    if wf.dangerous_action_provider:
+                        dangerous_action_provider += 1
+                    if wf.dangerous_action_pin:
+                        dangerous_action_pin += 1
+                    if wf.dangerous_trigger.is_dangerous:
+                        dangerous_trigger += 1 
+                dangerous_token_permission_ratio = dangerous_token_permission / len(workflow_analysis)
+                dangerous_action_provider_ratio = dangerous_action_provider / len(workflow_analysis)
+                dangerous_action_pin_ratio = dangerous_action_pin / len(workflow_analysis)
+                dangerous_trigger_ratio = dangerous_trigger / len(workflow_analysis)
+            else:
+                dangerous_token_permission_ratio = -1.0
+                dangerous_action_provider_ratio = -1.0
+                dangerous_action_pin_ratio = -1.0
+                dangerous_trigger_ratio = -1.0
+                
             result = CIEvalResult(
-                has_dependabot=has_dependabot, workflow_analysis=workflow_analysis
+                has_dependabot=has_dependabot,
+                dangerous_token_permission_ratio=dangerous_token_permission_ratio,
+                dangerous_action_provider_ratio=dangerous_action_provider_ratio,
+                dangerous_action_pin_ratio=dangerous_action_pin_ratio,
+                dangerous_trigger_ratio=dangerous_trigger_ratio,
+                #details=workflow_analysis,
             )
 
             logger.info(f"CI evaluation completed for {self.repo_info.repo_id}")
@@ -138,7 +166,7 @@ class CIEvaluator(BaseEvaluator):
                 dangerous_action_provider=False,
                 dangerous_action_pin=False,
                 dangerous_trigger=DangerousTriggerAnalysis(
-                    is_dangerous=False,
+      is_dangerous=False,
                     danger_level=0.0,
                     reason=f"Failed to parse workflow: {str(e)}",
                 ),

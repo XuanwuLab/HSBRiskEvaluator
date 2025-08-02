@@ -139,8 +139,8 @@ class BasicInfo(BaseModel):
 
 class RepoInfo(BaseModel):
     pkt_type: Literal["debian", "others"] = "debian"  # only support debian
-    pkt_name: str = Field(
-        description="package name in package management system such as apt."
+    pkt_name: str | list[str] = Field(
+        description="package name list in package management system such as apt."
     )
     repo_id: str = Field(
         description="unique identifier for the repository, usually the orgname-repo_name format"
@@ -173,8 +173,4 @@ class RepoInfo(BaseModel):
     )
     check_run_list: list[CheckRun] = Field(
         description="List of check runs in the repository"
-    )
-    dependent_list: list[Dependent] = Field(
-        description="List of recursive dependencies from package_management system",
-        default_factory=list,
     )

@@ -48,10 +48,13 @@ class HSBRiskEvaluator(BaseEvaluator):
 
             # Create comprehensive result
             result = EvalResult(
+                url = self.repo_info.basic_info.url,
+                pkt_name = self.repo_info.pkt_name,
                 community_quality=community_result,
                 payload_hidden_difficulty=payload_result,
                 dependency=dependency_result,
                 ci=CI_result,
+
             )
 
             logger.info(f"HSB risk evaluation completed for {self.repo_info.repo_id}")

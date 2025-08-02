@@ -83,10 +83,12 @@ class PayloadHiddenEvalResult(BaseModel):
     binary_files_count: int = Field(
         description="Total number of binary files in repository"
     )
+    """
     details: list[PayloadHiddenDetail] = Field(
         default_factory=list,
         description="Detailed analysis of binary files and their classification",
     )
+    """
 
 class DependencyDetail(BaseModel):
     name: str = Field(description="Name of the package")
@@ -96,15 +98,35 @@ class DependencyDetail(BaseModel):
 class DependencyEvalResult(BaseModel):
     """Software Supply Chain Dependency Location evaluation results"""
 
-    is_important_packages_dependency: bool = Field(
-        description="Whether repository is direct/indirect dependency of some important packages"
+    self_priority_required_count: int = Field(
+        description="Number of required packages corresponding to the repo"
     )
-    is_important_package: bool = Field(
-        description="Whether repository is considered important package itself"
+    self_priority_important_count: int = Field(
+        description="Number of important packages corresponding to the repo"
     )
+    self_priority_standard_count: int = Field(
+        description="Number of standard packages corresponding to the repo"
+    )
+    self_essential_count: int = Field(
+        description="Number of essential packages corresponding to the repo"
+    )
+    dependency_priority_required_count: int = Field(
+        description="Number of required packages that contains the repo as a dependency"
+    )
+    dependency_priority_important_count: int = Field(
+        description="Number of important packages that contains the repo as a dependency"
+    )
+    dependency_priority_standard_count: int = Field(
+        description="Number of standard packages that contains the repo as a dependency"
+    )
+    dependency_essential_count: int = Field(
+        description="Number of essential packages that contains the repo as a dependency"
+    )
+    """
     details: list[DependencyDetail] = Field(
         description="Detailed analysis of dependency classification"
     )
+    """
 
 
 class DangerousTriggerAnalysis(BaseModel):
@@ -140,14 +162,30 @@ class CIEvalResult(BaseModel):
     has_dependabot: bool = Field(
         description="Whether repository has Dependabot enabled"
     )
-    workflow_analysis: list[WorkflowAnalysis] = Field(
+    dangerous_token_permission_ratio : float = Field(
+        description="Ratio of workflows with dangerous token permissions"
+    )
+    dangerous_action_provider_ratio: float = Field(
+        description="Ratio of workflows with dangerous action providers"
+    )
+    dangerous_action_pin_ratio: float = Field(
+        description="Ratio of workflows with dangerous action pins"
+    )
+    dangerous_trigger_ratio: float = Field(
+        description="Ratio of workflows with dangerous triggers"
+    )
+    """
+    details: list[WorkflowAnalysis] = Field(
         description="Detailed analysis of CI workflows"
     )
-
+    """
 
 class EvalResult(BaseModel):
     """Complete evaluation results for all risk categories"""
-
+    url: str = Field(description="URL of the repository")
+    pkt_name: str | list[str] = Field(
+        description="package name list in package management system such as apt."
+    )
     community_quality: CommunityEvalResult
     payload_hidden_difficulty: PayloadHiddenEvalResult
     dependency: DependencyEvalResult
