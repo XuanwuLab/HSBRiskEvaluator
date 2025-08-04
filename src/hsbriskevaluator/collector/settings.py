@@ -11,7 +11,8 @@ class CollectorSettings(BaseSettings):
 
     # GitHub Collector settings
     github_max_workers: int = 5
-    github_tokens: Optional[List[str]] = None  # Multiple tokens for load balancing
+    # Multiple tokens for load balancing
+    github_tokens: Optional[List[str]] = None
     github_proxy_url: Optional[str] = None  # HTTP/HTTPS proxy URL
 
     # Local repository settings
@@ -31,14 +32,14 @@ class CollectorSettings(BaseSettings):
     pull_requests_since_days: Optional[int] = None
     pull_requests_without_comment_max_count: Optional[int] = 1000
     pull_requests_without_comment_since_days: Optional[int] = 365*5
-    
+
     # Separate limits for merged, closed, and open PRs
     merged_pull_requests_max_count: Optional[int] = 100
     merged_pull_requests_since_days: Optional[int] = None
-    
+
     closed_pull_requests_max_count: Optional[int] = 100
     closed_pull_requests_since_days: Optional[int] = None
-    
+
     open_pull_requests_max_count: Optional[int] = 100
     open_pull_requests_since_days: Optional[int] = None
 
@@ -55,6 +56,7 @@ class CollectorSettings(BaseSettings):
     check_runs_pr_limit: int = 3
 
     token_rotation_interval: int = 5
+
     def get_max_issues(self) -> Optional[int]:
         """Get max issues count with fallback to global default"""
         return self.issues_max_count if self.issues_max_count is not None else self.global_max_count

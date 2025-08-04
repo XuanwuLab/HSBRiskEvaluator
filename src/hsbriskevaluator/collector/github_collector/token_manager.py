@@ -64,9 +64,11 @@ class GitHubTokenManager:
         # Initialize GitHub clients for each token
         for token in tokens:
             if self.proxy_url:
-                raise NotImplementedError("Proxy support is not implemented yet")
+                raise NotImplementedError(
+                    "Proxy support is not implemented yet")
             else:
-                self._github_clients[token] = Github(login_or_token=token, per_page=100)
+                self._github_clients[token] = Github(
+                    login_or_token=token, per_page=100)
 
     def get_github_client(self) -> Github:
         """

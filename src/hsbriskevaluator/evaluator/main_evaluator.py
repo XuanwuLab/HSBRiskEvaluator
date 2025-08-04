@@ -28,7 +28,8 @@ class HSBRiskEvaluator(BaseEvaluator):
         # Initialize individual evaluators
         self.community_evaluator = CommunityEvaluator(repo_info, self.settings)
         self.payload_evaluator = PayloadEvaluator(repo_info, self.settings)
-        self.dependency_evaluator = DependencyEvaluator(repo_info, self.settings)
+        self.dependency_evaluator = DependencyEvaluator(
+            repo_info, self.settings)
         self.CI_evaluator = CIEvaluator(repo_info, self.settings)
 
     async def evaluate(self) -> EvalResult:
@@ -48,8 +49,8 @@ class HSBRiskEvaluator(BaseEvaluator):
 
             # Create comprehensive result
             result = EvalResult(
-                url = self.repo_info.basic_info.url,
-                pkt_name = self.repo_info.pkt_name,
+                url=self.repo_info.basic_info.url,
+                pkt_name=self.repo_info.pkt_name,
                 community_quality=community_result,
                 payload_hidden_difficulty=payload_result,
                 dependency=dependency_result,
@@ -57,7 +58,8 @@ class HSBRiskEvaluator(BaseEvaluator):
 
             )
 
-            logger.info(f"HSB risk evaluation completed for {self.repo_info.repo_id}")
+            logger.info(
+                f"HSB risk evaluation completed for {self.repo_info.repo_id}")
 
             return result
 

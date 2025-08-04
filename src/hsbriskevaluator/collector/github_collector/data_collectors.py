@@ -163,7 +163,8 @@ class GitHubDataCollector:
             repo_name: Repository name in format 'owner/repo'
             with_comment: Whether to include comments in the response
         """
-        logger.info(f"Starting issue collection for repository: {repo_name} (with_comment={with_comment})")
+        logger.info(
+            f"Starting issue collection for repository: {repo_name} (with_comment={with_comment})")
 
         def _fetch_issues():
             issues = []
@@ -195,7 +196,8 @@ class GitHubDataCollector:
                 # Get total count if available (for progress tracking)
                 try:
                     total_issues = issues_paginated.totalCount
-                    logger.info(f"Total issues available in repository: {total_issues}")
+                    logger.info(
+                        f"Total issues available in repository: {total_issues}")
                 except Exception:
                     total_issues = None
                     logger.debug("Could not determine total issue count")
@@ -209,7 +211,7 @@ class GitHubDataCollector:
 
                 # Create progress bar with progress manager
                 issue_desc = f"Issues ({'with' if with_comment else 'without'} comment) from {repo_name}"
-                
+
                 # Use progress manager for sub-progress tracking
                 with progress_manager.create_sub_progress(
                     total=effective_limit,
@@ -224,7 +226,8 @@ class GitHubDataCollector:
 
                         # Check max limit
                         if max_issues is not None and count >= max_issues:
-                            logger.info(f"Reached maximum issue limit: {max_issues}")
+                            logger.info(
+                                f"Reached maximum issue limit: {max_issues}")
                             break
 
                         # Check time limit before processing to avoid unnecessary API calls
@@ -240,7 +243,8 @@ class GitHubDataCollector:
                         # Skip pull requests (they appear in issues endpoint)
                         if issue.pull_request is None:
                             try:
-                                converted_issue = self.converter.to_issue(issue, with_comment=with_comment)
+                                converted_issue = self.converter.to_issue(
+                                    issue, with_comment=with_comment)
                                 issues.append(converted_issue)
                                 issues_progress.update(1)
                                 count += 1
@@ -304,23 +308,24 @@ class GitHubDataCollector:
         return await self._get_pull_requests_by_status(repo_name, "closed")
 
     async def get_open_pull_requests(self, repo_name: str) -> List[PullRequest]:
-        """Get open pull requests only"""  
+        """Get open pull requests only"""
         return await self._get_pull_requests_by_status(repo_name, "open")
 
     async def _get_pull_requests_by_status(self, repo_name: str, status: str, with_comment: bool = True) -> List[PullRequest]:
         """
         Helper method to get pull requests by specific status
-        
+
         Args:
             repo_name: Repository name in format 'owner/repo'
             status: PR status - 'merged', 'closed', or 'open'
             with_comment: Whether to include comments in the response
         """
-        logger.info(f"Starting {status} pull request collection for repository: {repo_name} (with_comment={with_comment})")
+        logger.info(
+            f"Starting {status} pull request collection for repository: {repo_name} (with_comment={with_comment})")
 
         def _fetch_pull_requests_by_status():
             pull_requests = []
-            
+
             # Get appropriate settings based on status and comment inclusion
             if with_comment:
                 if status == "merged":
@@ -338,7 +343,7 @@ class GitHubDataCollector:
             else:
                 max_prs = self.settings.get_max_pull_requests_without_comment()
                 since_time = self.settings.get_pull_requests_without_comment_since_time()
-            
+
             since_timestamp = None
             if since_time:
                 since_timestamp = datetime.now(tz=timezone.utc) - since_time
@@ -347,7 +352,8 @@ class GitHubDataCollector:
             count = 0
             page_count = 0
 
-            logger.info(f"{status.capitalize()} PR collection parameters: max_prs={max_prs}, since_time={since_time}")
+            logger.info(
+                f"{status.capitalize()} PR collection parameters: max_prs={max_prs}, since_time={since_time}")
 
             try:
                 repo = self._get_repository(repo_name)
@@ -359,18 +365,20 @@ class GitHubDataCollector:
 
                 try:
                     total_prs = pulls_paginated.totalCount
-                    logger.info(f"Total {status} PRs available in repository: {total_prs}")
+                    logger.info(
+                        f"Total {status} PRs available in repository: {total_prs}")
                 except Exception:
                     total_prs = None
 
                 # Determine effective limit for progress bar
-                effective_limit = min(max_prs or float("inf"), total_prs or float("inf"))
+                effective_limit = min(max_prs or float(
+                    "inf"), total_prs or float("inf"))
                 if effective_limit == float("inf"):
                     effective_limit = None
 
                 # Create progress bar
                 pr_desc = f"{status.capitalize()} PRs ({'with' if with_comment else 'without'} comment) from {repo_name}"
-                
+
                 with progress_manager.create_sub_progress(
                     total=effective_limit,
                     desc=pr_desc,
@@ -383,7 +391,8 @@ class GitHubDataCollector:
 
                         # Check max limit
                         if max_prs is not None and count >= max_prs:
-                            logger.info(f"Reached maximum {status} PR limit: {max_prs}")
+                            logger.info(
+                                f"Reached maximum {status} PR limit: {max_prs}")
                             break
 
                         # Check time limit
@@ -398,26 +407,30 @@ class GitHubDataCollector:
                             continue
 
                         try:
-                            converted_pr = self.converter.to_pull_request(pr, with_comment=with_comment)
+                            converted_pr = self.converter.to_pull_request(
+                                pr, with_comment=with_comment)
                             pull_requests.append(converted_pr)
                             prs_progress.update(1)
                             count += 1
-                            logger.debug(f"Collected {status} PR #{pr.number}: {pr.title[:50]}...")
+                            logger.debug(
+                                f"Collected {status} PR #{pr.number}: {pr.title[:50]}...")
                         except Exception as e:
-                            logger.warning(f"Failed to convert {status} PR #{pr.number}: {e}")
+                            logger.warning(
+                                f"Failed to convert {status} PR #{pr.number}: {e}")
 
                 elapsed = time.time() - start_time
-                logger.info(f"Successfully retrieved {len(pull_requests)} {status} pull requests for {repo_name} in {elapsed:.2f}s")
+                logger.info(
+                    f"Successfully retrieved {len(pull_requests)} {status} pull requests for {repo_name} in {elapsed:.2f}s")
 
                 return pull_requests
 
             except Exception as e:
                 elapsed = time.time() - start_time
-                logger.error(f"Error fetching {status} pull requests for {repo_name} after {elapsed:.2f}s: {e}")
+                logger.error(
+                    f"Error fetching {status} pull requests for {repo_name} after {elapsed:.2f}s: {e}")
                 return []
 
         return await self._run_in_executor(_fetch_pull_requests_by_status)
-
 
     async def get_issues_without_comment(self, repo_name: str) -> List[Issue]:
         """Get repository issues without comments"""
@@ -467,7 +480,8 @@ class GitHubDataCollector:
 
                 try:
                     total_events = events_paginated.totalCount
-                    logger.info(f"Total events available in repository: {total_events}")
+                    logger.info(
+                        f"Total events available in repository: {total_events}")
                 except Exception:
                     total_events = None
                     logger.debug("Could not determine total event count")
@@ -481,7 +495,7 @@ class GitHubDataCollector:
 
                 # Create progress bar with progress manager
                 events_desc = f"Events from {repo_name}"
-                
+
                 with progress_manager.create_sub_progress(
                     total=effective_limit,
                     desc=events_desc,
@@ -496,7 +510,8 @@ class GitHubDataCollector:
 
                         # Check max limit
                         if max_events is not None and count >= max_events:
-                            logger.info(f"Reached maximum event limit: {max_events}")
+                            logger.info(
+                                f"Reached maximum event limit: {max_events}")
                             break
 
                         # Check time limit before processing to avoid unnecessary API calls
@@ -511,7 +526,8 @@ class GitHubDataCollector:
 
                         # Convert event and filter out unwanted types
                         try:
-                            converted_event = self.converter.to_github_event(event)
+                            converted_event = self.converter.to_github_event(
+                                event)
                             if converted_event:
                                 events.append(converted_event)
                                 count += 1
@@ -520,9 +536,11 @@ class GitHubDataCollector:
                                 )
                             else:
                                 filtered_count += 1
-                                logger.debug(f"Filtered out event: {event.type}")
+                                logger.debug(
+                                    f"Filtered out event: {event.type}")
                         except Exception as e:
-                            logger.warning(f"Failed to convert event {event.type}: {e}")
+                            logger.warning(
+                                f"Failed to convert event {event.type}: {e}")
 
                 elapsed = time.time() - start_time
                 logger.info(
@@ -586,7 +604,8 @@ class GitHubDataCollector:
                 # Get total count if available (for progress tracking)
                 try:
                     total_commits = commits_paginated.totalCount
-                    logger.info(f"Total commits available in repository: {total_commits}")
+                    logger.info(
+                        f"Total commits available in repository: {total_commits}")
                 except Exception:
                     total_commits = None
                     logger.debug("Could not determine total commit count")
@@ -600,7 +619,7 @@ class GitHubDataCollector:
 
                 # Create progress bar with progress manager
                 commits_desc = f"Commits from {repo_name}"
-                
+
                 # Use progress manager for sub-progress tracking
                 with progress_manager.create_sub_progress(
                     total=effective_limit,
@@ -615,7 +634,8 @@ class GitHubDataCollector:
 
                         # Check max limit
                         if max_commits is not None and count >= max_commits:
-                            logger.info(f"Reached maximum commit limit: {max_commits}")
+                            logger.info(
+                                f"Reached maximum commit limit: {max_commits}")
                             break
 
                         # Check time limit before processing to avoid unnecessary API calls
@@ -686,7 +706,8 @@ class GitHubDataCollector:
         local_repo_path: Path,
     ) -> List[Workflow]:
         """Get GitHub Actions workflows with comprehensive progress tracking"""
-        logger.info(f"Starting workflow collection for repository: {repo_name}")
+        logger.info(
+            f"Starting workflow collection for repository: {repo_name}")
 
         def _fetch_workflows():
             workflows = []
@@ -716,7 +737,7 @@ class GitHubDataCollector:
 
                 # Create progress bar with progress manager
                 workflows_desc = f"Workflows from {repo_name}"
-                
+
                 with progress_manager.create_sub_progress(
                     total=total_workflows,
                     desc=workflows_desc,
@@ -726,10 +747,11 @@ class GitHubDataCollector:
 
                     for workflow in workflows_paginated:
                         workflows_progress.update(1)
-                        
+
                         # Check max limit
                         if max_workflows is not None and count >= max_workflows:
-                            logger.info(f"Reached maximum workflow limit: {max_workflows}")
+                            logger.info(
+                                f"Reached maximum workflow limit: {max_workflows}")
                             break
 
                         logger.debug(
@@ -746,14 +768,16 @@ class GitHubDataCollector:
                             )
                         except FileNotFoundError:
                             file_read_errors += 1
-                            logger.warning(f"Workflow file not found locally: {file_path}")
+                            logger.warning(
+                                f"Workflow file not found locally: {file_path}")
                             content = f"Error: file not found"
                             if workflow.path.startswith(".github/workflows/"):
                                 continue
 
                         except Exception as e:
                             file_read_errors += 1
-                            logger.warning(f"Error reading workflow file {file_path}: {e}")
+                            logger.warning(
+                                f"Error reading workflow file {file_path}: {e}")
                             content = f"Error reading file: {e}"
                             if workflow.path.startswith(".github/workflows/"):
                                 continue
@@ -771,7 +795,6 @@ class GitHubDataCollector:
                             logger.warning(
                                 f"Failed to create workflow object for {workflow.name}: {e}"
                             )
-
 
                 elapsed = time.time() - start_time
                 logger.info(
@@ -804,7 +827,8 @@ class GitHubDataCollector:
         self, repo_name: str
     ) -> List[CheckRun]:
         """Get check runs from recent commits and pull requests with comprehensive tracking"""
-        logger.info(f"Starting check run collection for repository: {repo_name}")
+        logger.info(
+            f"Starting check run collection for repository: {repo_name}")
 
         def _fetch_check_runs():
             check_runs: Set[str] = set()
@@ -868,9 +892,10 @@ class GitHubDataCollector:
                 try:
                     repo = self._get_repository(repo_name)
                     commits_list = list(
-                        repo.get_commits()[: self.settings.check_runs_commit_limit]
+                        repo.get_commits()[
+                            : self.settings.check_runs_commit_limit]
                     )
-                    
+
                     with progress_manager.create_sub_progress(
                         total=len(commits_list),
                         desc=f"Check runs from commits",
@@ -889,11 +914,12 @@ class GitHubDataCollector:
                                 )
                                 break
                 except Exception as e:
-                    logger.warning(f"Error processing commits for check runs: {e}")
+                    logger.warning(
+                        f"Error processing commits for check runs: {e}")
 
                 # Check pull requests if we haven't reached the limit
                 if max_check_runs is None or len(check_runs) < max_check_runs:
-                    
+
                     logger.debug(
                         f"Processing recent pull requests (limit: {self.settings.check_runs_pr_limit})"
                     )
@@ -905,7 +931,7 @@ class GitHubDataCollector:
                                 : self.settings.check_runs_pr_limit
                             ]
                         )
-                        
+
                         with progress_manager.create_sub_progress(
                             total=len(prs_list),
                             desc=f"Check runs from PRs",
@@ -921,7 +947,8 @@ class GitHubDataCollector:
                                 try:
                                     for commit in pull.get_commits():
                                         pr_commits_processed += 1
-                                        should_break, added = add_check_run(commit)
+                                        should_break, added = add_check_run(
+                                            commit)
                                         if should_break:
                                             logger.info(
                                                 f"Reached max check runs limit from PR #{pull.number}: {max_check_runs}"
@@ -951,9 +978,9 @@ class GitHubDataCollector:
                             f"Error processing pull requests for check runs: {e}"
                         )
 
-
                 elapsed = time.time() - start_time
-                check_run_list = list(map(lambda name: CheckRun(name=name), check_runs))
+                check_run_list = list(
+                    map(lambda name: CheckRun(name=name), check_runs))
 
                 logger.info(
                     f"Successfully retrieved {len(check_run_list)} unique check runs for {repo_name} in {elapsed:.2f}s"
@@ -964,7 +991,8 @@ class GitHubDataCollector:
                 )
 
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Check run names found: {sorted(list(check_runs))}")
+                    logger.debug(
+                        f"Check run names found: {sorted(list(check_runs))}")
 
                 return check_run_list
 

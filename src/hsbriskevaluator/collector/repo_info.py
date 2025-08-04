@@ -31,7 +31,8 @@ class GithubEvent(BaseModel):
         "PushEvent",
         "ReleaseEvent",
     ] = Field(description="type of the event, such as push, pull_request, issue, etc.")
-    actor: str = Field(description="username of the user who triggered the event")
+    actor: str = Field(
+        description="username of the user who triggered the event")
     timestamp: str = Field(description="timestamp when the event occurred")
     payload: dict = Field(
         description="payload of the event, containing additional information such as issue"
@@ -67,15 +68,19 @@ class Comment(BaseModel):
     content: str = Field(description="content of the comment")
     timestamp: str = Field(description="timestamp when the comment was made")
 
-class  PullRequestReview(BaseModel):
+
+class PullRequestReview(BaseModel):
     user: User = Field(description="the user who made the review")
     body: str = Field(description="content of the review")
     commit_id: str = Field(description="commit ID associated with the review")
     html_url: str = Field(description="HTML URL of the review")
     id: int = Field(description="unique ID of the review")
-    pull_request_url: str = Field(description="URL of the pull request associated with the review")
-    state: str = Field(description="state of the review, such as APPROVED, CHANGES_REQUESTED, or COMMENTED")
-    submitted_at: str = Field(description="timestamp when the review was submitted")
+    pull_request_url: str = Field(
+        description="URL of the pull request associated with the review")
+    state: str = Field(
+        description="state of the review, such as APPROVED, CHANGES_REQUESTED, or COMMENTED")
+    submitted_at: str = Field(
+        description="timestamp when the review was submitted")
 
 
 class Issue(BaseModel):
@@ -83,7 +88,8 @@ class Issue(BaseModel):
     author: User = Field(description="author of the issue")
     title: str = Field(description="title of the issue")
     body: str = Field(description="body content of the issue")
-    comments: list[Comment] = Field(description="list of comments in the issue")
+    comments: list[Comment] = Field(
+        description="list of comments in the issue")
     status: Literal["open", "closed"] = Field(
         description="status of the issue, can be open or closed"
     )
@@ -97,16 +103,19 @@ class Issue(BaseModel):
 
 class PullRequest(Issue):
     approvers: list[User] = Field(description="approver of the pull request")
-    reviewers: list[User] = Field(description="list of reviewers for the pull request")
+    reviewers: list[User] = Field(
+        description="list of reviewers for the pull request")
     reviews: list[PullRequestReview] = Field(
         description="list of reviews for the pull request, including comments", default_factory=list
     )
-    assignees: list[User] = Field(description="list of assignees for the pull request", default_factory=list)
+    assignees: list[User] = Field(
+        description="list of assignees for the pull request", default_factory=list)
     merger: User = Field(description="merger of the pull request")
     status: Literal["open", "closed", "merged"] = Field(
         description="status of the pull request"
     )
-    merged_at: str | None = Field(description="merge timestamp if merged", default=None)
+    merged_at: str | None = Field(
+        description="merge timestamp if merged", default=None)
     changed_files: list[str] = Field(
         description="list of changed files in the pull request"
     )
@@ -115,7 +124,8 @@ class PullRequest(Issue):
 class Workflow(BaseModel):
     name: str = Field(description="name of the workflow")
     content: str = Field(description="content of the workflow file")
-    path: str = Field(description="path of the workflow file in the repository")
+    path: str = Field(
+        description="path of the workflow file in the repository")
 
 
 class CheckRun(BaseModel):
@@ -124,8 +134,10 @@ class CheckRun(BaseModel):
 
 class BasicInfo(BaseModel):
     description: str = Field(description="description of the repository")
-    stargazers_count: int = Field(description="number of stars in the repository")
-    watchers_count: int = Field(description="number of watchers in the repository")
+    stargazers_count: int = Field(
+        description="number of stars in the repository")
+    watchers_count: int = Field(
+        description="number of watchers in the repository")
     forks_count: int = Field(description="number of forks in the repository")
     url: str = Field(
         description="HTML URL of the repository, usually the same as repo_id",
@@ -145,12 +157,15 @@ class RepoInfo(BaseModel):
     repo_id: str = Field(
         description="unique identifier for the repository, usually the orgname-repo_name format"
     )
-    basic_info: BasicInfo = Field(description="Basic information of the repository")
-    commit_list: list[Commit] = Field(description="List of commits in the repository")
+    basic_info: BasicInfo = Field(
+        description="Basic information of the repository")
+    commit_list: list[Commit] = Field(
+        description="List of commits in the repository")
     pr_list: list[PullRequest] = Field(
         description="List of pull requests in the repository"
     )
-    issue_list: list[Issue] = Field(description="List of issues in the repository")
+    issue_list: list[Issue] = Field(
+        description="List of issues in the repository")
     issue_without_comment_list: list[Issue] = Field(
         default_factory=list,
         description="List of issues without comments in the repository"

@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from pathlib import Path
 from hsbriskevaluator.utils.file import get_data_dir
 
+
 class EvaluatorSettings(BaseSettings):
     # LLM Configuration
     default_llm_model_name: str = "openai/gpt-4.1-mini"
@@ -15,7 +16,7 @@ class EvaluatorSettings(BaseSettings):
     community_max_concurrency: int = 3
     payload_max_concurrency: int = 5
     dependency_max_concurrency: int = 5
-    
+
     # Community Evaluation Settings
     prs_to_analyze_limit: int = 300
     pr_consistency_confidence_threshold: float = 0.7
@@ -26,15 +27,15 @@ class EvaluatorSettings(BaseSettings):
     max_pr_participants_for_normalization: float = 3.0
     issue_activity_weight: float = 0.3
     pr_activity_weight: float = 0.7
-  
+
     # Dependency Package List File
     package_list_file: Path = get_data_dir() / "debian.yaml"
 
     # Payload Evaluation Settings
-    binary_file_to_analyze_limit: int=300
-    binary_file_batch_size: int=30
+    binary_file_to_analyze_limit: int = 300
+    binary_file_batch_size: int = 30
     # HTTP Timeouts
     http_request_timeout: int = 10
-    
+
     class Config:
         env_prefix = "HSB_EVALUATOR_"

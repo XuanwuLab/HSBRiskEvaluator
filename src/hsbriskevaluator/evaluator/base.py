@@ -9,13 +9,16 @@ from pydantic import BaseModel, Field
 class CommunityEvalResult(BaseModel):
     """Community Quality evaluation results"""
 
-    stargazers_count: int = Field(description="Number of stargazers of the repository")
-    watchers_count: int = Field(description="Number of watchers of the repository")
+    stargazers_count: int = Field(
+        description="Number of stargazers of the repository")
+    watchers_count: int = Field(
+        description="Number of watchers of the repository")
     forks_count: int = Field(description="Number of forks of the repository")
     community_users_count: int = Field(
         description="Number of users actively participating in the community"
     )
-    direct_commits_ratio: float = Field(description="Ratio of direct commits to main branch")
+    direct_commits_ratio: float = Field(
+        description="Ratio of direct commits to main branch")
     direct_commit_users_count: int = Field(
         description="Number of users that submitted some code to main branch"
     )
@@ -28,7 +31,7 @@ class CommunityEvalResult(BaseModel):
     required_approvals_distribution: Dict[int, float] = Field(
         description="Distribution of approvals needed to merge the PR"
     )
-    prs_needed_to_become_maintainer: Dict[int, int]= Field(
+    prs_needed_to_become_maintainer: Dict[int, int] = Field(
         description="Distribution of number of PRs needed to become a maintainer"
     )
     prs_needed_to_become_approver: Dict[int, int] = Field(
@@ -90,10 +93,14 @@ class PayloadHiddenEvalResult(BaseModel):
     )
     """
 
+
 class DependencyDetail(BaseModel):
     name: str = Field(description="Name of the package")
-    labels: list[str] = Field(description="importance labels associated with the package")
-    type: str = Field(description="Type of dependency (e.g., 'Depends', 'PreDepends', 'Self')")
+    labels: list[str] = Field(
+        description="importance labels associated with the package")
+    type: str = Field(
+        description="Type of dependency (e.g., 'Depends', 'PreDepends', 'Self')")
+
 
 class DependencyEvalResult(BaseModel):
     """Software Supply Chain Dependency Location evaluation results"""
@@ -138,7 +145,8 @@ class DangerousTriggerAnalysis(BaseModel):
         le=1.0,
         description="A score from 0.0 (safe) to 1.0 (very dangerous)."
     )
-    reason: str = Field(description="Reason for considering the trigger dangerous")
+    reason: str = Field(
+        description="Reason for considering the trigger dangerous")
 
 
 class WorkflowAnalysis(BaseModel):
@@ -147,10 +155,10 @@ class WorkflowAnalysis(BaseModel):
     dangerous_token_permission: bool = Field(
         description="Danger level for token permissions in workflow"
     )
-    dangerous_action_provider: bool= Field(
+    dangerous_action_provider: bool = Field(
         description="Danger level for action provider in workflow"
     )
-    dangerous_action_pin: bool= Field(
+    dangerous_action_pin: bool = Field(
         description="Danger level for action pins in workflow"
     )
     dangerous_trigger: DangerousTriggerAnalysis = Field(
@@ -162,7 +170,7 @@ class CIEvalResult(BaseModel):
     has_dependabot: bool = Field(
         description="Whether repository has Dependabot enabled"
     )
-    dangerous_token_permission_ratio : float = Field(
+    dangerous_token_permission_ratio: float = Field(
         description="Ratio of workflows with dangerous token permissions"
     )
     dangerous_action_provider_ratio: float = Field(
@@ -179,6 +187,7 @@ class CIEvalResult(BaseModel):
         description="Detailed analysis of CI workflows"
     )
     """
+
 
 class EvalResult(BaseModel):
     """Complete evaluation results for all risk categories"""

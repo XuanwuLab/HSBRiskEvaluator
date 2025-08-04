@@ -71,7 +71,8 @@ class APTCollector:
         Raises:
             RuntimeError: If dependency collection fails
         """
-        logger.info(f"Starting dependency collection for package: {package_name}")
+        logger.info(
+            f"Starting dependency collection for package: {package_name}")
 
         try:
             start_time = time.time()
@@ -81,7 +82,6 @@ class APTCollector:
             )
 
             collection_duration = time.time() - start_time
-
 
             logger.info(
                 f"Successfully collected {len(dependencies)} dependencies for {package_name}"
@@ -119,13 +119,15 @@ class APTCollector:
                     )
                     return []
 
-        logger.info(f"Starting dependency collection for {len(package_names)} packages")
+        logger.info(
+            f"Starting dependency collection for {len(package_names)} packages")
 
         tasks = [collect_single_package(pkg) for pkg in package_names]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Filter out exceptions and return valid results
-        dependency_lists = [result for result in results if isinstance(result, list)]
+        dependency_lists = [
+            result for result in results if isinstance(result, list)]
 
         logger.info(
             f"Successfully collected dependencies for {len(dependency_lists)}/{len(package_names)} packages"

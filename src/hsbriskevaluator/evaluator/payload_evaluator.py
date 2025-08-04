@@ -39,20 +39,26 @@ class PayloadEvaluator(BaseEvaluator):
 
     async def evaluate(self) -> PayloadHiddenEvalResult:
         files_detail = await self._analyze_binary_files()
-        binary_files_count=len(self.repo_info.binary_file_list)
-        allows_binary_test_files = any(detail.is_test_file for detail in files_detail)
-        allows_binary_document_files = any(detail.is_documentation for detail in files_detail)
-        allows_binary_code_files = any(detail.is_code for detail in files_detail)
-        allows_binary_assets_files = any(detail.is_asset for detail in files_detail)
-        allows_other_binary_files = any(not(detail.is_test_file or detail.is_documentation or detail.is_code or detail.is_asset) for detail in files_detail)
+        binary_files_count = len(self.repo_info.binary_file_list)
+        allows_binary_test_files = any(
+            detail.is_test_file for detail in files_detail)
+        allows_binary_document_files = any(
+            detail.is_documentation for detail in files_detail)
+        allows_binary_code_files = any(
+            detail.is_code for detail in files_detail)
+        allows_binary_assets_files = any(
+            detail.is_asset for detail in files_detail)
+        allows_other_binary_files = any(not (
+            detail.is_test_file or detail.is_documentation or detail.is_code or detail.is_asset) for detail in files_detail)
         return PayloadHiddenEvalResult(allows_binary_test_files=allows_binary_test_files,
-            allows_binary_document_files=allows_binary_document_files,
-            allows_binary_code_files=allows_binary_code_files,
-            allows_binary_assets_files=allows_binary_assets_files,
-            allows_other_binary_files=allows_other_binary_files,
-            binary_files_count=binary_files_count,
-            details=files_detail
-        )
+                                       allows_binary_document_files=allows_binary_document_files,
+                                       allows_binary_code_files=allows_binary_code_files,
+                                       allows_binary_assets_files=allows_binary_assets_files,
+                                       allows_other_binary_files=allows_other_binary_files,
+                                       binary_files_count=binary_files_count,
+                                       details=files_detail
+                                       )
+
     async def _analyze_binary_files(self) -> List[PayloadHiddenDetail]:
         logger.info(
             f"Starting {len(self.repo_info.binary_file_list)} binary files evaluation for repository: {self.repo_info.repo_id}"
@@ -64,13 +70,15 @@ class PayloadEvaluator(BaseEvaluator):
         tasks = []
         tasks = []
         batch_size = self.settings.binary_file_batch_size
-        file_list = self.repo_info.binary_file_list[:self.settings.binary_file_to_analyze_limit]
+        file_list = self.repo_info.binary_file_list[:
+                                                    self.settings.binary_file_to_analyze_limit]
 
-        if(len(file_list)) ==0: 
+        if (len(file_list)) == 0:
             return []
         page_num = (len(file_list)-1)//batch_size+1
         for page in range(page_num):
-            task = self._check_binary_files(file_list[batch_size*page:batch_size*(page+1)])
+            task = self._check_binary_files(
+                file_list[batch_size*page:batch_size*(page+1)])
             tasks.append(task)
         if not tasks:
             return []
@@ -98,8 +106,6 @@ class PayloadEvaluator(BaseEvaluator):
             f"File list: {file_list}"
         )
 
-
-
         try:
             class AnalysisResult(BaseModel):
                 results: List[PayloadHiddenDetail] = Field(
@@ -114,7 +120,7 @@ class PayloadEvaluator(BaseEvaluator):
                     {"role": "system", "content": PAYLOAD_FILES_ANALYSIS_PROMPT},
                     {"role": "user", "content": f"Binary files: {file_list}"},
                 ],
-                response_model=AnalysisResult, 
+                response_model=AnalysisResult,
             )
             return response.results
         except ValidationError as e:
@@ -124,5 +130,5 @@ class PayloadEvaluator(BaseEvaluator):
         except Exception as e:
             logger.error(
                 f"Unexpected error while evaluating binary files for {self.repo_info.binary_file_list}: {e}"
-                )
+            )
         return []

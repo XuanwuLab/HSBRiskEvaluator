@@ -14,17 +14,22 @@ from hsbriskevaluator.utils.apt_utils import AptUtils, Dependent
 
 logger = logging.getLogger(__name__)
 
+
 class Dependent(BaseModel):
     name: str
     parent: Optional[str] = None
     type: str = 'Depends'
+
+
 class Package(BaseModel):
     package: str
     depends: List[Dependent]
     labels: List[str] = []
 
+
 class Packages(BaseModel):
     packages: List[Package]
+
 
 class DependencyEvaluator(BaseEvaluator):
     """Evaluator for Software Supply Chain Dependency Location metrics"""
@@ -56,27 +61,37 @@ class DependencyEvaluator(BaseEvaluator):
                 pkg_name = pkg.package
                 if pkg_name in pkt_name_list:
                     is_important_package = True
-                    details.append(DependencyDetail(name=pkg_name, labels=pkg.labels, type='Self'))
+                    details.append(DependencyDetail(
+                        name=pkg_name, labels=pkg.labels, type='Self'))
                     for label in pkg.labels:
                         self_count[label] = self_count.get(label, 0) + 1
                 for dependency in pkg.depends:
                     if dependency.name in pkt_name_list:
                         is_important_packages_dependency = True
-                        details.append(DependencyDetail(name=pkg_name, labels=pkg.labels, type=dependency.type))
+                        details.append(DependencyDetail(
+                            name=pkg_name, labels=pkg.labels, type=dependency.type))
                         for label in pkg.labels:
-                            dependency_count[label] = dependency_count.get(label, 0) + 1
+                            dependency_count[label] = dependency_count.get(
+                                label, 0) + 1
                         break
 
-            labels = ["priority:required", "priority:important", "priority:standard", "essential"]
+            labels = ["priority:required", "priority:important",
+                      "priority:standard", "essential"]
 
-            self_priority_required_count = self_count.get('priority:required', 0)
-            self_priority_important_count = self_count.get('priority:important', 0)
-            self_priority_standard_count = self_count.get('priority:standard', 0)
+            self_priority_required_count = self_count.get(
+                'priority:required', 0)
+            self_priority_important_count = self_count.get(
+                'priority:important', 0)
+            self_priority_standard_count = self_count.get(
+                'priority:standard', 0)
             self_essential_count = self_count.get('essential', 0)
 
-            dependency_priority_required_count = dependency_count.get('priority:required', 0)
-            dependency_priority_important_count = dependency_count.get('priority:important', 0)
-            dependency_priority_standard_count = dependency_count.get('priority:standard', 0)
+            dependency_priority_required_count = dependency_count.get(
+                'priority:required', 0)
+            dependency_priority_important_count = dependency_count.get(
+                'priority:important', 0)
+            dependency_priority_standard_count = dependency_count.get(
+                'priority:standard', 0)
             dependency_essential_count = dependency_count.get('essential', 0)
 
             return DependencyEvalResult(
@@ -89,7 +104,7 @@ class DependencyEvaluator(BaseEvaluator):
                 dependency_priority_standard_count=dependency_priority_standard_count,
                 dependency_essential_count=dependency_essential_count,
                 # details = details
-                )
+            )
         except Exception as e:
             logger.error(f"Error during dependency evaluation: {str(e)}")
             raise

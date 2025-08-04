@@ -37,7 +37,7 @@ class CommunityEvaluator(BaseEvaluator):
     def __init__(
         self,
         repo_info: RepoInfo,
-        settings: Optional[EvaluatorSettings]=None,
+        settings: Optional[EvaluatorSettings] = None,
     ):
         super().__init__(repo_info)
         if settings is None:
@@ -60,8 +60,8 @@ class CommunityEvaluator(BaseEvaluator):
             direct_commit_users = self._count_direct_commit_users()
             community_users = self._count_community_users()
             maintainers = self._count_maintainers()
-            approvers= self._count_approvers()
-            required_approvals= self._analyze_required_approvals()
+            approvers = self._count_approvers()
+            required_approvals = self._analyze_required_approvals()
             prs_needed_to_become_maintainer = self._prs_needed_to_become_maintainer()
             prs_needed_to_become_approver = self._prs_needed_to_become_approver()
 
@@ -99,7 +99,8 @@ class CommunityEvaluator(BaseEvaluator):
                 community_activity_score=community_activity_score,
             )
 
-            logger.info(f"Community evaluation completed for {self.repo_info.repo_id}")
+            logger.info(
+                f"Community evaluation completed for {self.repo_info.repo_id}")
             return result
 
         except Exception as e:
@@ -135,7 +136,8 @@ class CommunityEvaluator(BaseEvaluator):
     def _count_community_users(self) -> int:
         # not counting bots here
         return len(
-            list(filter(lambda user: user.type == "User", self._list_community_users()))
+            list(filter(lambda user: user.type ==
+                 "User", self._list_community_users()))
         )
 
     def _list_direct_commits(self) -> list[Commit]:
@@ -147,7 +149,7 @@ class CommunityEvaluator(BaseEvaluator):
             pattern = r'.*?(close|merge).*?#\d+.*'
             for line in commit.message.splitlines():
                 if re.search(pattern, line, re.IGNORECASE):
-                    return False 
+                    return False
             return True
         return list(
             filter(
@@ -176,7 +178,6 @@ class CommunityEvaluator(BaseEvaluator):
         logger.debug(f"Maintainers: {unique_contributors}")
         return list(unique_contributors)
 
-
     def _count_direct_commit_users(self) -> int:
         return len(
             list(
@@ -196,12 +197,13 @@ class CommunityEvaluator(BaseEvaluator):
         for pr in self.repo_info.pr_without_comment_list:
             if pr.reviewers:
                 for review in pr.reviews:
-                    if review.state in ("APPROVED", "CHANGES_REQUESTED","DISMISSED"):
+                    if review.state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
                         approvers.add(review.user)
                     elif review.state != "COMMENTED":
                         logger.warning(f"STATE: {review.state}")
         logger.debug(f"Approvers: {approvers}")
-        return approvers 
+        return approvers
+
     def _count_approvers(self) -> int:
         """Count users with PR review authority"""
         return len(
@@ -227,7 +229,8 @@ class CommunityEvaluator(BaseEvaluator):
                 )
 
             in_merger_list = list(
-                filter(lambda pr: pr.merger == user, self.repo_info.pr_without_comment_list)
+                filter(lambda pr: pr.merger == user,
+                       self.repo_info.pr_without_comment_list)
             )
             if in_merger_list != []:
                 granted_to_maintainer_date = min(
@@ -240,7 +243,8 @@ class CommunityEvaluator(BaseEvaluator):
                     pr.author == user or pr.merger == user or user in pr.reviewers
                 ) and datetime.fromisoformat(pr.created_at) < granted_to_maintainer_date
 
-            early_prs = list(filter(in_pr, self.repo_info.pr_without_comment_list))
+            early_prs = list(
+                filter(in_pr, self.repo_info.pr_without_comment_list))
             if early_prs == []:
                 logger.debug(
                     f"User {user.username} has no PRs before granted to maintainer"
@@ -250,14 +254,14 @@ class CommunityEvaluator(BaseEvaluator):
                     f"User {user.username} contributed to {len(early_prs)} PRs in {granted_to_maintainer_date - datetime.fromisoformat(early_prs[-1].created_at)} before becoming a maintainer"
                 )
             if len(early_prs) not in activities:
-                activities[len(early_prs)]=0
-            activities[len(early_prs)]+=1
+                activities[len(early_prs)] = 0
+            activities[len(early_prs)] += 1
         logger.debug(
             f"Average time to become maintainer: {mean(activities) if len(activities) else -1.0} PRs"
         )
         return activities
 
-    def _prs_needed_to_become_approver(self) -> Dict[int,int]:
+    def _prs_needed_to_become_approver(self) -> Dict[int, int]:
         activities = {}
         approvers = self._list_approvers()
         direct_commits = self._list_direct_commits()
@@ -274,7 +278,8 @@ class CommunityEvaluator(BaseEvaluator):
                 )
             in_approver_list = list(
                 filter(
-                    lambda pr: any(review.user == user and review.state in ("APPROVED", "CHANGES_REQUESTED","DISMISSED") for review in pr.reviews) or pr.merger == user,
+                    lambda pr: any(review.user == user and review.state in (
+                        "APPROVED", "CHANGES_REQUESTED", "DISMISSED") for review in pr.reviews) or pr.merger == user,
                     self.repo_info.pr_without_comment_list,
                 )
             )
@@ -289,7 +294,8 @@ class CommunityEvaluator(BaseEvaluator):
                     pr.author == user or pr.merger == user or user in pr.reviewers
                 ) and datetime.fromisoformat(pr.created_at) < granted_to_approver_date
 
-            early_prs = list(filter(in_pr, self.repo_info.pr_without_comment_list))
+            early_prs = list(
+                filter(in_pr, self.repo_info.pr_without_comment_list))
             if early_prs == []:
                 logger.debug(
                     f"User {user.username} has no PRs before granted to approver"
@@ -299,8 +305,8 @@ class CommunityEvaluator(BaseEvaluator):
                     f"User {user.username} contributed to {len(early_prs)} PRs in {granted_to_approver_date - datetime.fromisoformat(early_prs[-1].created_at)} before becoming a approver"
                 )
             if len(early_prs) not in activities:
-                activities[len(early_prs)]=0
-            activities[len(early_prs)]+=1
+                activities[len(early_prs)] = 0
+            activities[len(early_prs)] += 1
         logger.debug(
             f"Average time to become approver: {mean(activities) if len(activities) else 0.0} PRs"
         )
@@ -314,7 +320,8 @@ class CommunityEvaluator(BaseEvaluator):
         if not self.repo_info.pr_without_comment_list:
             return {}
 
-        prs = [pr for pr in self.repo_info.pr_without_comment_list if pr.status == "merged" or len(pr.approvers)>0]
+        prs = [pr for pr in self.repo_info.pr_without_comment_list if pr.status ==
+               "merged" or len(pr.approvers) > 0]
 
         if not prs:
             return {}
@@ -332,7 +339,7 @@ class CommunityEvaluator(BaseEvaluator):
     def _count_prs_without_discussion_ratio(self) -> float:
         """Count PRs merged without any discussion"""
         prs_without_discussion = 0
-        total_prs=0
+        total_prs = 0
 
         for pr in self.repo_info.pr_list:
             if pr.status == "merged":
@@ -340,10 +347,11 @@ class CommunityEvaluator(BaseEvaluator):
                 # This is a simplified check - in practice, we'd need PR comments data
                 if len(pr.comments) == 0 and not pr.approvers:
                     prs_without_discussion += 1
-                total_prs+=1
+                total_prs += 1
 
-        logger.debug(f"PRs merged without discussion: {prs_without_discussion}")
-        return prs_without_discussion/total_prs if total_prs>0 else 0.0
+        logger.debug(
+            f"PRs merged without discussion: {prs_without_discussion}")
+        return prs_without_discussion/total_prs if total_prs > 0 else 0.0
 
     async def _count_prs_with_inconsistent_description_ratio(self) -> float:
         """Count PRs where description is inconsistent with implementation using LLM"""
@@ -355,7 +363,7 @@ class CommunityEvaluator(BaseEvaluator):
         )[
             :self.settings.prs_to_analyze_limit
         ]  # Analyze first N PRs
-        
+
         if not prs_to_analyze:
             return 0
 
@@ -364,9 +372,9 @@ class CommunityEvaluator(BaseEvaluator):
         batch_size = self.settings.pr_batch_size
         page_num = (len(prs_to_analyze)-1)//batch_size+1
         for page in range(page_num):
-            task = self._analyze_pr_consistency(prs_to_analyze[batch_size*page:batch_size*(page+1)])
+            task = self._analyze_pr_consistency(
+                prs_to_analyze[batch_size*page:batch_size*(page+1)])
             tasks.append(task)
-
 
         if not tasks:
             return 0
@@ -379,16 +387,16 @@ class CommunityEvaluator(BaseEvaluator):
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.warning(
-                    f"Failed to analyze PR {list(map(lambda pr: pr.number,prs_to_analyze[i*batch_size:(i+1)*batch_size]))} consistency: {str(result)}"
+                    f"Failed to analyze PR {list(map(lambda pr: pr.number, prs_to_analyze[i*batch_size:(i+1)*batch_size]))} consistency: {str(result)}"
                 )
             else:
                 inconsistent_count += 0
                 for analysis in result:
                     if analysis.is_inconsistent and analysis.confidence > self.settings.pr_consistency_confidence_threshold:
-                        inconsistent_count+=1
-                
+                        inconsistent_count += 1
 
-        logger.debug(f"PRs with inconsistent descriptions: {inconsistent_count}")
+        logger.debug(
+            f"PRs with inconsistent descriptions: {inconsistent_count}")
         return inconsistent_count / len(prs_to_analyze) if prs_to_analyze else 0.0
 
     async def _analyze_pr_consistency(self, prs: List[PullRequest]) -> List[PRInconsistencyAnalysis]:
@@ -403,8 +411,9 @@ class CommunityEvaluator(BaseEvaluator):
                     max_length=len(prs),
                     min_length=len(prs)
                 )
-            def simplify_pr(pr:PullRequest)->Dict:
-                return {'title': pr.title, 'author':pr.author, 'status': pr.status, 'created_at':pr.created_at, 'merged_at':pr.merged_at or 'Not merged', 'changed_files':pr.changed_files,'body':pr.body}
+
+            def simplify_pr(pr: PullRequest) -> Dict:
+                return {'title': pr.title, 'author': pr.author, 'status': pr.status, 'created_at': pr.created_at, 'merged_at': pr.merged_at or 'Not merged', 'changed_files': pr.changed_files, 'body': pr.body}
 
             simplified_prs = list(map(simplify_pr, prs))
             messages = [
@@ -420,7 +429,8 @@ class CommunityEvaluator(BaseEvaluator):
                 )
                 return analysis.results
             except Exception as e:
-                logger.warning(f"LLM analysis failed for PR {list(map(lambda pr: pr.number, prs))}: {str(e)}")
+                logger.warning(
+                    f"LLM analysis failed for PR {list(map(lambda pr: pr.number, prs))}: {str(e)}")
                 return [PRInconsistencyAnalysis(in_consistent=False, confidence=0.0, reason="LLM analysis failed") for _ in prs]
 
     def _calculate_avg_participants_per_issue(self) -> float:
@@ -439,7 +449,8 @@ class CommunityEvaluator(BaseEvaluator):
 
             participant_counts.append(len(participants))
 
-        avg_participants = mean(participant_counts) if participant_counts else 0.0
+        avg_participants = mean(
+            participant_counts) if participant_counts else 0.0
         logger.debug(f"Average participants per issue: {avg_participants:.2f}")
         return avg_participants
 
@@ -462,7 +473,8 @@ class CommunityEvaluator(BaseEvaluator):
 
             participant_counts.append(len(participants))
 
-        avg_participants = mean(participant_counts) if participant_counts else 0.0
+        avg_participants = mean(
+            participant_counts) if participant_counts else 0.0
         logger.debug(f"Average participants per PR: {avg_participants:.2f}")
         return avg_participants
 
@@ -474,8 +486,10 @@ class CommunityEvaluator(BaseEvaluator):
         # Higher participation indicates better community engagement
 
         # Normalize participants (assuming 5+ participants is very active)
-        normalized_issue_activity = min(avg_issue_participants / self.settings.max_issue_participants_for_normalization, 1.0)
-        normalized_pr_activity = min(avg_pr_participants / self.settings.max_pr_participants_for_normalization, 1.0)
+        normalized_issue_activity = min(
+            avg_issue_participants / self.settings.max_issue_participants_for_normalization, 1.0)
+        normalized_pr_activity = min(
+            avg_pr_participants / self.settings.max_pr_participants_for_normalization, 1.0)
 
         # Weight PR activity higher as it's more critical for security
         activity_score = (normalized_issue_activity * self.settings.issue_activity_weight) + (

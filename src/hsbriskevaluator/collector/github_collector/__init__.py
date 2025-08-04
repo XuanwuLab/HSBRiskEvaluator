@@ -44,7 +44,8 @@ class GitHubRepoCollector:
         self.settings = settings
         self.show_progress = show_progress
 
-        self.executor = ThreadPoolExecutor(max_workers=settings.github_max_workers)
+        self.executor = ThreadPoolExecutor(
+            max_workers=settings.github_max_workers)
         self.local_utils = LocalRepoUtils(settings)
 
     async def _run_in_executor(self, func, *args):
@@ -107,7 +108,8 @@ class GitHubRepoCollector:
                     data_collector.get_merged_pull_requests(repo_name),
                     data_collector.get_closed_pull_requests(repo_name),
                     data_collector.get_open_pull_requests(repo_name),
-                    data_collector.get_pull_requests_without_comment(repo_name),
+                    data_collector.get_pull_requests_without_comment(
+                        repo_name),
                     data_collector.find_binary_files_local(local_repo_path),
                     data_collector.get_workflows(repo_name, local_repo_path),
                     data_collector.get_check_runs(repo_name),
@@ -117,7 +119,7 @@ class GitHubRepoCollector:
                 # Combine all pull requests as requested
                 pull_requests = merged_pull_requests + closed_pull_requests + open_pull_requests
 
-                # Finalize repo info  
+                # Finalize repo info
                 logger.info(f"Finalizing repository info for {repo_name}")
                 events = []  # events not used in current implementation
 
@@ -141,9 +143,12 @@ class GitHubRepoCollector:
 
             logger.info(f"Successfully collected repo info for {repo_name}")
             logger.info(f"  - Issues: {len(issues)}")
-            logger.info(f"  - Issues without comment: {len(issues_without_comment)}")
-            logger.info(f"  - Pull Requests: {len(pull_requests)} (merged: {len(merged_pull_requests)}, closed: {len(closed_pull_requests)}, open: {len(open_pull_requests)})")
-            logger.info(f"  - Pull Requests without comment: {len(pr_without_comment)}")
+            logger.info(
+                f"  - Issues without comment: {len(issues_without_comment)}")
+            logger.info(
+                f"  - Pull Requests: {len(pull_requests)} (merged: {len(merged_pull_requests)}, closed: {len(closed_pull_requests)}, open: {len(open_pull_requests)})")
+            logger.info(
+                f"  - Pull Requests without comment: {len(pr_without_comment)}")
             logger.info(f"  - Commits: {len(commits)}")
             logger.info(f"  - Events: {len(events)}")
             logger.info(f"  - Binary Files: {len(binary_files)}")
@@ -179,7 +184,8 @@ class GitHubRepoCollector:
                 try:
                     return await self.collect_repo_info(repo_name, **kwargs)
                 except Exception as e:
-                    logger.error(f"Failed to collect info for {repo_name}: {e}")
+                    logger.error(
+                        f"Failed to collect info for {repo_name}: {e}")
                     return None
 
         logger.info(f"Starting collection for {len(repo_names)} repositories")
@@ -193,7 +199,8 @@ class GitHubRepoCollector:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Filter out None results and exceptions
-        repo_infos = [result for result in results if isinstance(result, RepoInfo)]
+        repo_infos = [
+            result for result in results if isinstance(result, RepoInfo)]
 
         logger.info(
             f"Successfully collected info for {len(repo_infos)}/{len(repo_names)} repositories"

@@ -89,7 +89,8 @@ class LocalRepoUtils:
                     )
                     return repo_dir_name  # Return relative path
                 else:
-                    logger.error(f"Failed to clone {repo_name}: {result.stderr}")
+                    logger.error(
+                        f"Failed to clone {repo_name}: {result.stderr}")
                     return None
 
             except subprocess.TimeoutExpired:
@@ -132,7 +133,8 @@ class LocalRepoUtils:
                         # This function includes is_dir check and content-based binary detection
                         if is_binary(str(file_path)):
                             # Get relative path from repository root
-                            relative_path = file_path.relative_to(local_repo_path)
+                            relative_path = file_path.relative_to(
+                                local_repo_path)
                             binary_files.append(str(relative_path))
 
                 logger.info(
@@ -218,7 +220,8 @@ class LocalRepoUtils:
                     commits.append(
                         Commit(
                             hash=commit.hexsha,
-                            author=User(username=username, email=email, type=""),
+                            author=User(username=username,
+                                        email=email, type=""),
                             message=message,
                             timestamp=commit_date.isoformat(),
                             pull_numbers=pull_numbers,

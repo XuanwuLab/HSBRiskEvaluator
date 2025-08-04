@@ -139,7 +139,7 @@ class GitHubConverter:
         approvers: list[User] = []
         reviewers: list[User] = []
         assignees: list[User] = []
-        reviews =[]
+        reviews = []
         try:
             for review in pr.get_reviews():
                 reviewers.append(GitHubConverter.to_user(review.user))
@@ -147,16 +147,16 @@ class GitHubConverter:
                 if review.state == "APPROVED":
                     approvers.append(GitHubConverter.to_user(review.user))
         except GithubException:
-                logger.warning(f"Could not fetch reviews for PR #{pr.number}")
+            logger.warning(f"Could not fetch reviews for PR #{pr.number}")
 
         for reviewer in pr.requested_reviewers:
             reviewers.append(GitHubConverter.to_user(reviewer))
 
-        reviewers = list({reviewer.username: reviewer for reviewer in reviewers}.values())
+        reviewers = list(
+            {reviewer.username: reviewer for reviewer in reviewers}.values())
 
         for assignee in pr.assignees:
             assignees.append(GitHubConverter.to_user(assignee))
-
 
         # Get merger information
         merger = User(username="Not merged", email="", type="None")
@@ -176,7 +176,8 @@ class GitHubConverter:
             comments = [
                 GitHubConverter.to_comment(comment) for comment in pr.get_comments()
             ] + [GitHubConverter.to_comment(comment) for comment in pr.get_issue_comments()]
-            comments = sorted(comments, key=lambda x: datetime.fromisoformat(x.timestamp))
+            comments = sorted(
+                comments, key=lambda x: datetime.fromisoformat(x.timestamp))
 
         # Handle timestamps safely
         created_at_str = pr.created_at.isoformat() if pr.created_at else ""
@@ -184,7 +185,8 @@ class GitHubConverter:
         merged_at_str = pr.merged_at.isoformat() if pr.merged_at else None
 
         if with_comment:
-            changed_files = list(map(lambda file: file.filename, pr.get_files()))
+            changed_files = list(
+                map(lambda file: file.filename, pr.get_files()))
         else:
             changed_files = []
 
