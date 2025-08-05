@@ -143,6 +143,9 @@ Generates lists of cloud-related packages from various sources for specialized a
 **[`scripts/generate_packages_from_file.py`](scripts/generate_packages_from_file.py)**  
 Reads a package list file and generates detailed package and dependency information using APT utilities. Creates `packages.yaml` and `dependencies.yaml` files with comprehensive package metadata.
 
+**[`scripts/convert_packages.py`](scripts/convert_packages.py)**
+Convert the `packages.yaml` to another format that can be easier to read by the evaluator.
+
 ### 3. Upstream Repository Discovery
 
 **[`scripts/fetch_upstream_infos.py`](scripts/fetch_upstream_infos.py)**  
@@ -157,6 +160,15 @@ Processes packages and dependencies to generate metadata about package relations
 
 **[`scripts/fetch_repo_infos.py`](scripts/fetch_repo_infos.py)**  
 Fetches comprehensive repository information from GitHub for packages with upstream URLs. Collects commit history, contributor data, security information, and other repository metrics for risk analysis.
+
+**[`scripts/delete_symlinks.py`](scripts/delete_symlinks.py)**
+Delete the symlinks and merge the siblings to one single yaml.
+
+### 6. Repository Evaulate and Score Calculation
+
+**[`scripts/evaluate.py`](scripts/evaluate.py)**
+
+**[`scripts/calculate_score.py`](scripts/calculate_score.py)**
 
 #### GitHub Token Management
 
@@ -190,6 +202,8 @@ python scripts/get_priority_packages.py
 # 2. Generate package information
 python scripts/generate_packages_from_file.py debian_priority_packages.txt -d data/debian
 
+python scripts/convert_packages.py
+
 # 3. Fetch upstream repository URLs
 python scripts/fetch_upstream_infos.py -d data/debian
 
@@ -198,6 +212,14 @@ python scripts/generate_package_metadata.py -d data/debian
 
 # 5. Collect repository information
 python scripts/fetch_repo_infos.py -d data/debian
+
+python scripts/delete_symlinks.py
+
+# 6. Evaluate and score calculation
+python scripts/evaluate.py
+
+python scripts/calculate_score.py
+
 ```
 
 All scripts support the `--directory` parameter to specify custom input/output directories and include comprehensive help documentation accessible via `--help`.
@@ -245,31 +267,32 @@ class PayloadHiddenEvalResult(BaseModel):
     allows_binary_asset_files: bool        # Whether binary files are allowed as assets
     allows_other_binary_files: bool        # Whether binary files are allowed as other files
     binary_files_count: int                # Total binary files detected
-    details: list[PayloadHiddenDetail]     # Details of the binary files
 ```
 
 ### 3. Dependency Impact Analysis
 
 ```python
 class DependencyEvalResult(BaseModel):
-    is_important_package: bool # Whether it is a important package itself
-    is_important_packages_dependency: bool # Whether it is a dependency of some important packages
-    details: list[DependencyDetail] # The list of important packages that depends this package
+    self_priority_required_count: int # Number of required packages corresponding to the repo"
+    self_priority_important_count: int # Number of important packages corresponding to the repo"
+    self_priority_standard_count: int # Number of standard packages corresponding to the repo"
+    self_essential_count: int # Number of essential packages corresponding to the repo"
+    dependency_priority_required_count: int # Number of required packages that contains the repo as a dependency"
+    dependency_priority_important_count: int # Number of important packages that contains the repo as a dependency"
+    dependency_priority_standard_count: int # Number of standard packages that contains the repo as a dependency"
+    dependency_essential_count: int # Number of essential packages that contains the repo as a dependency"
 ```
 
 ### 4. CI Analysis
 
 ```python
-class WorkflowAnalysis(BaseModel):
-    name: str
-    path: str
-    dangerous_token_permission: bool # Whether this workflow have dangerous token permissions
-    dangerous_action_provider_or_pin: float # Whether this workflow have dangerous action provider or pinning, from 0.0(safe) to 1.0(very dangerous), if the only problem is not fixed to SHA, it's 0.5
-    dangerous_trigger: DangerousTriggerAnalysis # Analysis for dangerous triggers in workflow
-
 class CIEvalResult(BaseModel):
-    has_dependabot: bool # Whether repository has Dependabot enabled
-    workflow_analysis: list[WorkflowAnalysis] = # Analysis for each CI workflow
+    has_dependabot: bool # Whether repository has Dependabot enabled"
+    dangerous_token_permission_ratio: float # Ratio of workflows with dangerous token permissions"
+    dangerous_action_provider_ratio: float # Ratio of workflows with dangerous action providers"
+    dangerous_action_pin_ratio: float # Ratio of workflows with dangerous action pins"
+    dangerous_trigger_ratio: float # Ratio of workflows with dangerous triggers"
+
 ```
 
 ### Diff github repo with debian repo
@@ -289,76 +312,62 @@ diff_result=comparator.clone_and_compare("xz-utils")
 
 ## Example Analysis Output
 
-```json
-{
-  "community_quality": {
-    "stargazers_count": 797,
-    "watchers_count": 797,
-    "forks_count": 164,
-    "community_users_count": 238,
-    "direct_commits_ratio": 0.979,
-    "direct_commit_users_count": 20,
-    "maintainers_count": 20,
-    "pr_reviewers_count": 25,
-    "required_reviewers_distribution": {
-      "0": 0.9705882352941176,
-      "1": 0.029411764705882353
-    },
-    "estimated_prs_to_become_maintainer": 1.3,
-    "estimated_prs_to_become_reviewer": 0.96,
-    "prs_merged_without_discussion_ratio": 0.5294117647058824,
-    "prs_with_inconsistent_description_ratio": 0.0,
-    "avg_participants_per_issue": 3.4875,
-    "avg_participants_per_pr": 1.801980198019802,
-    "community_activity_score": 0.63
-  },
-  "payload_hidden_difficulty": {
-    "allows_binary_test_files": true,
-    "allows_binary_document_files": false,
-    "allows_binary_code_files": false,
-    "allows_binary_assets_files": false,
-    "allows_other_binary_files": false,
-    "binary_files_count": 95,
-    "details": [
-      {
-        "file_path": "tests/files/good-0-empty.xz",
-        "reason": "File is under 'tests/files', indicating it is a binary fixture or resource used as part of automated tests.",
-        "file_type": "test_resource",
-        "is_test_file": true,
-        "is_documentation": false,
-        "is_code": false,
-        "is_asset": false
-      }
-    ]
-  },
-  "dependency": {
-    "is_important_packages_dependency": false,
-    "is_important_package": true,
-    "details": [
-      {
-        "name": "xz-utils",
-        "labels": ["priority:standard"],
-        "type": "Self"
-      }
-    ]
-  },
-  "ci": {
-    "has_dependabot": false,
-    "workflow_analysis": [
-      {
-        "name": "CI",
-        "path": ".github/workflows/ci.yml",
-        "dangerous_token_permission": false,
-        "dangerous_action_provider_or_pin": 0.5,
-        "dangerous_trigger": {
-          "is_dangerous": false,
-          "danger_level": 0.1,
-          "reason": "The workflow uses only 'push', 'pull_request', and 'workflow_dispatch' triggers (avoiding highly dangerous triggers like 'pull_request_target'). There is no evidence of direct unsanitized user input used in shell commands or inline scripts. Variables from the matrix are controlled internally. No secrets or tokens are exposed. There is only minimal risk from normal use of matrix inputs in build commands, so security danger is very low."
-        }
-      }
-    ]
-  }
-}
+```yaml
+ci:
+  dangerous_action_pin_ratio: 0.1111111111111111
+  dangerous_action_provider_ratio: 0.7777777777777778
+  dangerous_token_permission_ratio: 0.0
+  dangerous_trigger_ratio: 0.0
+  has_dependabot: false
+community_quality:
+  approvers_count: 18
+  avg_participants_per_issue: 3.4875
+  avg_participants_per_pr: 1.8316831683168318
+  community_activity_score: 0.637
+  community_users_count: 238
+  direct_commit_users_count: 10
+  direct_commits_ratio: 0.95
+  forks_count: 164
+  maintainers_count: 10
+  prs_merged_without_discussion_ratio: 0.5294117647058824
+  prs_needed_to_become_approver:
+    0: 11
+    1: 2
+    2: 4
+    6: 1
+  prs_needed_to_become_maintainer:
+    0: 2
+    1: 2
+    2: 4
+    5: 1
+    6: 1
+  prs_with_inconsistent_description_ratio: 0.0
+  required_approvals_distribution:
+    0: 0.868421052631579
+    1: 0.10526315789473684
+    4: 0.02631578947368421
+  stargazers_count: 799
+  watchers_count: 24
+dependency:
+  dependency_essential_count: 8
+  dependency_priority_important_count: 13
+  dependency_priority_required_count: 10
+  dependency_priority_standard_count: 15
+  self_essential_count: 0
+  self_priority_important_count: 0
+  self_priority_required_count: 0
+  self_priority_standard_count: 1
+payload_hidden_difficulty:
+  allows_binary_assets_files: false
+  allows_binary_code_files: false
+  allows_binary_document_files: false
+  allows_binary_test_files: true
+  allows_other_binary_files: false
+  binary_files_count: 95
+pkt_name:
+  - liblzma5
+  - xz-utils
+url: https://github.com/tukaani-project/xz
 ```
 
 ## Troubleshooting
