@@ -48,10 +48,14 @@ def apply(f: list[dict], name, values: list[float]):
 def normalize(values: list[float], reverse=False) -> list[float]:
     p95 = np.percentile(values, 95).item()
     p5 = np.percentile(values, 5).item()
-    if reverse:
-        return list(map(lambda value: 1-min(max((value-p5)/(p95-p5), 0), 1), values))
+    if (p95-p5)<1e-6:
+        normalized=[0.5 if abs(p5-value)<1e-6 else (1 if value>p95 else 0) for value in values]
     else:
-        return list(map(lambda value: min(max((value-p5)/(p95-p5), 0), 1), values))
+        normalized=list(map(lambda value: min(max((value-p5)/(p95-p5), 0), 1), values))
+    if reverse:
+        return list(map(lambda value: 1-value, normalized))
+    else:
+        return normalized
 
 
 def calculate_DI_score(eval_results: list[EvalResult]) -> list[float]:
