@@ -2,6 +2,22 @@
 
 The Highly Stealthy Backdoor (HSB) Risk Evaluator provides security risk assessment for software repositories by analyzing individual evaluation entries across three key dimensions.
 
+This work has been accepted by AAAI 2026, [Paper Link](https://arxiv.org/abs/2511.13341).
+
+### Citation
+
+```
+@misc{yan2025llmbasedquantitativeframeworkevaluating,
+      title={An LLM-based Quantitative Framework for Evaluating High-Stealthy Backdoor Risks in OSS Supply Chains}, 
+      author={Zihe Yan and Kai Luo and Haoyu Yang and Yang Yu and Zhuosheng Zhang and Guancheng Li},
+      year={2025},
+      eprint={2511.13341},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2511.13341}, 
+}
+```
+
 ## Overview
 
 The evaluator analyzes repositories across three critical dimensions:
